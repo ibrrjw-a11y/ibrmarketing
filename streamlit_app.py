@@ -81,23 +81,26 @@ salary = st.sidebar.number_input("인당 고정비 (원)", value=3_000_000, step
 # =========================
 # 계산 함수
 # =========================
-def simulate_pl(ratio_row):
-    ad_detail = ratio_row * marketing_budget
-    ad_cost = ad_detail.sum()
+def def simulate_pl(ratio_row):
+    # 숫자 컬럼만 계산에 사용
+    ratio_numeric = pd.to_numeric(ratio_row, errors="coerce").fillna(0)
 
-    clicks = ad_cost / cpc
+    ad_detail = ratio_numeric * marketing_budget
+    total_ad_cost = ad_detail.sum()
+
+    clicks = total_ad_cost / cpc
     orders = clicks * cvr
-    revenue = orders * price
+    revenue = float(orders * price)
 
     cost_goods = revenue * cost_rate
     logistics = orders * logistics_cost
     labor = headcount * salary
 
-    profit = revenue - (ad_cost + cost_goods + logistics + labor)
-    margin = profit / revenue * 100 if revenue else 0
-    roas = revenue / ad_cost if ad_cost else 0
+    profit = revenue - (total_ad_cost + cost_goods + logistics + labor)
+    margin = (profit / revenue * 100) if revenue > 0 else 0
+    roas = (revenue / total_ad_cost) if total_ad_cost > 0 else 0
 
-    return revenue, ad_cost, profit, margin, roas, ad_detail
+    return revenue, total_ad_cost, profit, margin, roas, ad_detail
 
 # =========================
 # ② 단일 시나리오 분석
