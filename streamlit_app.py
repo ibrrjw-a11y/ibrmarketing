@@ -190,29 +190,74 @@ if view_mode == "내부용":
     rows = []
     for s in compare_strategies:
         r, a, _, _, ro, _ = simulate_pl(df_ratio.loc[s])
-        rows.append({"전략": s, "예상 매출": r, "예상 광고비": a, "ROAS": ro})
+        rows.append({
+            "전략": s,
+            "예상 매출": r,
+            "예상 광고비": a,
+            "ROAS": ro
+        })
+
     cmp_df = pd.DataFrame(rows)
 
     fig = go.Figure()
 
+    # 🔹 막대: 예상 매출
     if metric_view in ["예상 매출", "전체"]:
-        fig.add_bar(x=cmp_df["전략"], y=cmp_df["예상 매출"], name="예상 매출")
+        fig.add_bar(
+            x=cmp_df["전략"],
+            y=cmp_df["예상 매출"],
+            name="예상 매출",
+            marker_color="#4C6EF5",
+            yaxis="y1"
+        )
 
+    # 🔹 막대: 예상 광고비
     if metric_view in ["예상 광고비", "전체"]:
-        fig.add_bar(x=cmp_df["전략"], y=cmp_df["예상 광고비"], name="예상 광고비")
+        fig.add_bar(
+            x=cmp_df["전략"],
+            y=cmp_df["예상 광고비"],
+            name="예상 광고비",
+            marker_color="#15AABF",
+            yaxis="y1"
+        )
 
+    # 🔹 꺾은선: ROAS (오른쪽 축)
     if metric_view in ["ROAS", "전체"]:
-        fig.add_trace(go.Scatter(
-            x=cmp_df["전략"], y=cmp_df["ROAS"],
-            mode="lines+markers", name="ROAS", yaxis="y2"
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=cmp_df["전략"],
+                y=cmp_df["ROAS"],
+                name="ROAS",
+                mode="lines+markers",
+                line=dict(color="#FAB005", width=3),
+                marker=dict(size=8),
+                yaxis="y2"
+            )
+        )
 
     fig.update_layout(
         barmode="group",
-        yaxis=dict(title="금액 (원)", tickformat=","),
-        yaxis2=dict(title="ROAS", overlaying="y", side="right"),
+        xaxis=dict(title=None),
+        yaxis=dict(
+            title="금액 (원)",
+            tickformat=",",
+            showgrid=True
+        ),
+        yaxis2=dict(
+            title="ROAS",
+            overlaying="y",
+            side="right",
+            showgrid=False
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.05,
+            xanchor="right",
+            x=1
+        ),
         font=dict(size=13),
-        margin=dict(t=20)
+        margin=dict(t=20, b=20)
     )
 
     st.plotly_chart(fig, use_container_width=True)
