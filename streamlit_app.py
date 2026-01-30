@@ -37,7 +37,6 @@ scenario_col = df_raw.columns[0]
 df = df_raw.set_index(scenario_col)
 
 st.success(f"✅ '{scenario_col}' 컬럼을 시나리오명으로 인식했습니다.")
-)
 
 # =========================
 # 비율 컬럼 자동 정규화
