@@ -32,9 +32,27 @@ df_raw = pd.read_excel(uploaded_file)
 # Unnamed 컬럼 제거
 df_raw = df_raw.loc[:, ~df_raw.columns.str.contains("^Unnamed")]
 
-# 첫 번째 유효 컬럼을 시나리오명으로 사용
-scenario_col = df_raw.columns[0]
+# =========================
+# 시나리오 컬럼 자동 탐색 (데이터 수정 없음)
+# =========================
+scenario_candidates = [
+    c for c in df_raw.columns
+    if any(k in str(c).lower() for k in ["시나리오", "scenario", "전략"])
+]
+
+if not scenario_candidates:
+    st.error(
+        "❌ 시나리오 컬럼을 찾지 못했습니다.\n"
+        "컬럼명에 '시나리오 / scenario / 전략' 중 하나가 포함되어야 합니다."
+    )
+    st.write("현재 컬럼 목록:", list(df_raw.columns))
+    st.stop()
+
+scenario_col = scenario_candidates[0]
 df = df_raw.set_index(scenario_col)
+
+st.success(f"✅ 시나리오 컬럼 '{scenario_col}' 정상 인식")
+
 
 st.success(f"✅ '{scenario_col}' 컬럼을 시나리오명으로 인식했습니다.")
 
