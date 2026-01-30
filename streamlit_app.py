@@ -82,8 +82,15 @@ salary = st.sidebar.number_input("인당 고정비 (원)", value=3_000_000, step
 # 계산 함수
 # =========================
 def simulate_pl(ratio_row):
-    # 숫자 컬럼만 계산에 사용
-    ratio_numeric = pd.to_numeric(ratio_row, errors="coerce").fillna(0)
+    # ratio_row가 DataFrame이면 Series로 변환
+    if isinstance(ratio_row, pd.DataFrame):
+        ratio_row = ratio_row.iloc[0]
+
+    # 숫자로 변환 가능한 값만 사용 (나머지는 0)
+    ratio_numeric = (
+        pd.to_numeric(ratio_row, errors="coerce")
+        .fillna(0)
+    )
 
     ad_detail = ratio_numeric * marketing_budget
     total_ad_cost = ad_detail.sum()
@@ -101,6 +108,7 @@ def simulate_pl(ratio_row):
     roas = (revenue / total_ad_cost) if total_ad_cost > 0 else 0
 
     return revenue, total_ad_cost, profit, margin, roas, ad_detail
+
 
 # =========================
 # ② 단일 시나리오 분석
