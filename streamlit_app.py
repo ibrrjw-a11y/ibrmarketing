@@ -81,7 +81,7 @@ salary = st.sidebar.number_input("인당 고정비 (원)", value=3_000_000, step
 # =========================
 # 계산 함수
 # =========================
-def def simulate_pl(ratio_row):
+def simulate_pl(ratio_row):
     # 숫자 컬럼만 계산에 사용
     ratio_numeric = pd.to_numeric(ratio_row, errors="coerce").fillna(0)
 
