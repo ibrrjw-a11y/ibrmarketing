@@ -3,12 +3,47 @@ import pandas as pd
 import plotly.express as px
 
 # =========================
-# 기본 설정
+# 페이지 설정
 # =========================
-st.set_page_config(
-    page_title="마케팅 시뮬레이터",
-    layout="wide"
-)
+st.set_page_config(page_title="마케팅 시뮬레이터", layout="wide")
+
+# =========================
+# 정돈된 디자인 CSS
+# =========================
+st.markdown("""
+<style>
+html, body, [class*="css"] {
+    font-size: 14px;
+    color: #212529;
+}
+
+h1, h2, h3 {
+    font-weight: 600;
+}
+h2 { font-size: 20px; }
+h3 { font-size: 16px; }
+
+div[data-testid="metric-container"] {
+    background-color: #f8f9fa;
+    border-radius: 10px;
+    padding: 14px;
+    box-shadow: none;
+}
+
+div[data-testid="metric-container"] > div {
+    font-size: 18px;
+}
+
+div[data-testid="metric-container"] label {
+    font-size: 12px;
+    color: #868e96;
+}
+
+section.main > div {
+    gap: 2.2rem;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # =========================
 # 사이드바 – 모드 선택
@@ -21,20 +56,20 @@ view_mode = st.sidebar.radio(
 )
 
 # =========================
-# 내부용 입력 영역
+# 내부용 입력
 # =========================
 if view_mode == "내부용":
-    st.header("① 백데이터 엑셀 업로드")
+    st.markdown("### 1. 백데이터 업로드")
     uploaded_file = st.file_uploader(
         "시나리오 비율 엑셀 (.xlsx)",
         type=["xlsx"]
     )
 
-    st.header("② 제품 / 운영 지표 입력")
+    st.markdown("### 2. 제품 / 운영 지표")
 
-    price = st.number_input("판매가(원)", value=50000, step=1000)
-    cost_rate = st.number_input("원가율(%)", value=30.0) / 100
-    logistics_cost = st.number_input("물류비(건당)", value=3000, step=500)
+    price = st.number_input("판매가 (원)", value=50000, step=1000)
+    cost_rate = st.number_input("원가율 (%)", value=30.0) / 100
+    logistics_cost = st.number_input("물류비 (건당)", value=3000, step=500)
 
     marketing_budget = st.number_input(
         "월 마케팅 총 예산",
@@ -64,7 +99,7 @@ else:
     inputs = st.session_state.get("inputs")
 
     if uploaded_file is None or inputs is None:
-        st.warning("내부용에서 먼저 설정이 필요합니다.")
+        st.warning("내부용에서 먼저 설정해주세요.")
         st.stop()
 
     price = inputs["price"]
@@ -84,14 +119,14 @@ if uploaded_file is None:
 
 df_raw = pd.read_excel(uploaded_file, sheet_name="backdata")
 
-# 시나리오 컬럼 자동 인식 (데이터 수정 ❌)
+# 시나리오 컬럼 자동 인식 (의미 기반)
 scenario_candidates = [
     c for c in df_raw.columns
     if any(k in str(c).lower() for k in ["시나리오", "scenario", "전략"])
 ]
 
 if not scenario_candidates:
-    st.error("❌ 시나리오 컬럼을 인식할 수 없습니다.")
+    st.error("❌ 시나리오 컬럼을 찾을 수 없습니다.")
     st.write(df_raw.columns.tolist())
     st.stop()
 
@@ -99,7 +134,7 @@ scenario_col = scenario_candidates[0]
 df = df_raw.set_index(scenario_col)
 
 # =========================
-# 비율 정규화
+# 비율 정규화 (파생)
 # =========================
 def normalize(x):
     try:
@@ -146,34 +181,29 @@ rev, ad, prof, marg, roas, detail = simulate_pl(df_ratio.loc[scenario])
 # =========================
 # KPI 요약 (공통)
 # =========================
-st.markdown("## 📌 캠페인 결과 요약")
+st.markdown("### 캠페인 핵심 지표")
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("예상 매출", f"{rev:,.0f} 원")
-c2.metric("총 광고비", f"{ad:,.0f} 원")
-c3.metric("영업이익", f"{prof:,.0f} 원", f"{marg:.1f}%")
-c4.metric("ROAS", f"{roas:.2f}")
+k1, k2, k3, k4 = st.columns(4)
+k1.metric("예상 매출", f"{rev:,.0f} 원")
+k2.metric("총 광고비", f"{ad:,.0f} 원")
+k3.metric("영업이익", f"{prof:,.0f} 원")
+k4.metric("ROAS", f"{roas:.2f}")
 
 # =========================
-# 대행용 전용 영역
+# 대행용 화면
 # =========================
 if view_mode == "대행용":
 
     st.divider()
 
-    # 🔑 미디어믹스 영역 (네가 양식 넣을 자리)
-    st.subheader("📌 미디어 믹스 제안")
+    # 미디어믹스 자리
+    st.markdown("### 미디어 믹스 제안")
+    st.info("※ 본 영역은 대행용 미디어믹스 양식을 연결할 자리입니다.")
 
-    st.info(
-        "본 영역은 대행용 미디어믹스 양식에 따라 구성됩니다.\n"
-        "현재는 템플릿 연동 대기 상태입니다."
-    )
-
-    # =========================
-    # 광고비 구조 (원형)
-    # =========================
     st.divider()
-    st.subheader("광고비 구조")
+
+    # 광고비 구조 (원형)
+    st.markdown("### 광고비 구조")
 
     CHANNEL_GROUP = {
         "퍼포먼스": [c for c in detail.index if "퍼포먼스" in c],
@@ -185,25 +215,26 @@ if view_mode == "대행용":
     for g, cols in CHANNEL_GROUP.items():
         rows.append({
             "구분": g,
-            "광고비(원)": detail[cols].sum() if cols else 0
+            "광고비": detail[cols].sum() if cols else 0
         })
 
     pie_df = pd.DataFrame(rows)
 
     fig_pie = px.pie(
         pie_df,
-        values="광고비(원)",
+        values="광고비",
         names="구분",
-        hole=0.4
+        hole=0.45
     )
     fig_pie.update_traces(textinfo="percent+label")
+    fig_pie.update_layout(font=dict(size=13))
+
     st.plotly_chart(fig_pie, use_container_width=True)
 
-    # =========================
-    # 시나리오 비교 (지표 버튼)
-    # =========================
     st.divider()
-    st.subheader("시나리오 비교")
+
+    # 시나리오 비교
+    st.markdown("### 시나리오 비교")
 
     compare_rows = []
     for s in df_ratio.index[:5]:
@@ -234,16 +265,21 @@ if view_mode == "대행용":
         texttemplate="%{text:,.0f}",
         textposition="outside"
     )
-    fig_bar.update_layout(xaxis_tickangle=0)
+    fig_bar.update_layout(
+        font=dict(size=13),
+        xaxis_tickangle=0,
+        yaxis_title=None,
+        xaxis_title=None
+    )
 
     st.plotly_chart(fig_bar, use_container_width=True)
     st.stop()
 
 # =========================
-# 내부용 상세 테이블
+# 내부용 상세
 # =========================
 st.divider()
-st.subheader("📄 내부용 상세 데이터")
+st.markdown("### 내부용 상세 데이터")
 
 detail_df = detail.reset_index()
 detail_df.columns = ["매체", "광고비(원)"]
