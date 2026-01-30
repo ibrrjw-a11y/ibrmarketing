@@ -126,7 +126,13 @@ df_ratio = df.applymap(normalize)
 # 손익 계산 함수
 # =========================
 def simulate_pl(ratio_row):
+
+    # ✅ DataFrame → Series 강제 변환 (핵심)
+    if isinstance(ratio_row, pd.DataFrame):
+        ratio_row = ratio_row.iloc[0]
+
     ratio = pd.to_numeric(ratio_row, errors="coerce").fillna(0)
+
     ad_detail = ratio * marketing_budget
     total_ad = ad_detail.sum()
 
@@ -143,6 +149,7 @@ def simulate_pl(ratio_row):
     roas = (revenue / total_ad) if total_ad > 0 else 0
 
     return revenue, total_ad, profit, margin, roas, ad_detail
+
 
 # =========================
 # 시나리오 선택 (단일)
