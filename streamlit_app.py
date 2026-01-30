@@ -26,11 +26,13 @@ df = load_data()
 # =========================
 # 백데이터 검증
 # =========================
-REQUIRED_COL = "시나리오명"
-if REQUIRED_COL not in df.columns:
-    st.error("❌ 구글 시트에 '시나리오명' 컬럼이 없습니다.")
-    st.write("현재 컬럼:", list(df.columns))
-    st.stop()
+# =========================
+# 시나리오 컬럼 자동 인식
+# =========================
+scenario_col = df.columns[0]  # 첫 번째 컬럼을 시나리오명으로 사용
+df = df.set_index(scenario_col)
+
+st.info(f"ℹ️ 시나리오 컬럼으로 '{scenario_col}' 사용 중")
 
 df = df.set_index("시나리오명")
 
