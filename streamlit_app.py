@@ -14,9 +14,7 @@ st.title("📊 마케팅 예산 & 영업이익 시뮬레이터")
 # Google Sheets (원본 시트 → gviz CSV)
 # =========================
 CSV_URL = (
-    "https://docs.google.com/spreadsheets/d/"
-    "1MueXw_UsT5EfVraCeWWMqC8_JrdFl0xMsiaNweA9Za8"
-    "/gviz/tq?tqx=out:csv&gid=1704119896"
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vRt3yFjt4OwY6Ym1-xCIJy75-6ccqAzpmGWfa7j7BscDWYL9bl2AmWEJtxo7SDvmQbysb5UEM-jOM2A/pub?output=csv"
 )
 
 @st.cache_data
