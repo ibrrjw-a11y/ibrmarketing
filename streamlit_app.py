@@ -680,6 +680,34 @@ brand_cols = cols["brand_cols"]
 rev_share = build_rev_shares(row, rev_cols)
 media_share = build_media_shares(row, perf_cols, viral_cols, brand_cols)
 group_share = media_share["group"]
+# =========================
+# Sidebar - Upload (MUST RUN BEFORE detect_columns)
+# =========================
+st.sidebar.title("마케팅/유통 시뮬레이터")
+
+uploaded = st.sidebar.file_uploader(
+    "Backdata 업로드 (xlsx/csv)",
+    type=["xlsx", "csv"],
+    key="uploader_backdata"   # ✅ 고정 key
+)
+
+if st.sidebar.button("업로드 초기화"):
+    st.session_state.pop("uploader_backdata", None)
+    st.rerun()
+
+if uploaded is None:
+    st.info("좌측에서 backdata 파일(xlsx/csv)을 업로드하세요.")
+    st.stop()
+
+with st.spinner("파일 로딩 중..."):
+    df = load_backdata(uploaded)   # ✅ df 여기서 생성
+
+st.sidebar.success(f"업로드 완료: {uploaded.name} / {uploaded.size/1024/1024:.2f} MB")
+
+# ✅ df 만든 다음에만 detect_columns 호출
+cols = detect_columns(df)
+col_scn = cols["scenario"]
+col_disp = cols["display"]
 
 # =========================
 # Tabs
