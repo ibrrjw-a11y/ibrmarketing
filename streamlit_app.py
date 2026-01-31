@@ -3,13 +3,13 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from io import StringIO
 import re
+from typing import Dict, Optional, Tuple, List
 
-# =========================================================
+# ============================================================
 # Page / Theme
-# =========================================================
+# ============================================================
 st.set_page_config(page_title="마케팅/유통 시뮬레이터", layout="wide")
 
 ACCENT = "#2F6FED"
@@ -24,7 +24,23 @@ html, body, [class*="css"] {{
   color: #212529;
 }}
 h1, h2, h3 {{
-  font-weight: 650;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}}
+.smallcap {{
+  color: {MUTED};
+  font-size: 12px;
+}}
+.card {{
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 14px;
+  padding: 14px 14px;
+  background: white;
+}}
+hr.soft {{
+  border: 0;
+  border-top: 1px solid rgba(0,0,0,0.06);
+  margin: 12px 0;
 }}
 div[data-testid="metric-container"] {{
   background: {BG};
@@ -36,67 +52,75 @@ div[data-testid="metric-container"] label {{
   color: {MUTED};
   font-size: 12px;
 }}
-.smallcap {{
-  color: {MUTED};
-  font-size: 12px;
+.stTabs [data-baseweb="tab-list"] {{
+  gap: 10px;
 }}
-.badge {{
-  display: inline-block;
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-weight: 700;
-  font-size: 12px;
-}}
-.badge-green {{ background: rgba(25,135,84,0.12); color: rgb(25,135,84); }}
-.badge-yellow {{ background: rgba(255,193,7,0.15); color: rgb(161,118,0); }}
-.badge-red {{ background: rgba(220,53,69,0.12); color: rgb(220,53,69); }}
-.card {{
-  border: 1px solid rgba(0,0,0,0.08);
-  border-radius: 16px;
-  padding: 14px 14px;
-  background: white;
-}}
-hr.soft {{
-  border: 0;
-  border-top: 1px solid rgba(0,0,0,0.06);
-  margin: 12px 0;
+.stTabs [data-baseweb="tab"] {{
+  padding: 10px 14px;
+  border-radius: 12px;
 }}
 </style>
 """,
     unsafe_allow_html=True,
 )
 
-# =========================================================
-# Helpers
-# =========================================================
+# ============================================================
+# Key helper (prevents StreamlitDuplicateElementId)
+# ============================================================
+if "_kid" not in st.session_state:
+    st.session_state["_kid"] = 0
+
+
+def mk(prefix="k"):
+    st.session_state["_kid"] += 1
+    return f"{prefix}_{st.session_state['_kid']}"
+
+
+# ============================================================
+# Format helpers
+# ============================================================
 def fmt_won(x):
     try:
         if x is None or (isinstance(x, float) and np.isnan(x)):
             return "-"
         return f"{float(x):,.0f} 원"
-    except Exception:
+    except:
         return "-"
 
-def to_float(x, default=np.nan):
+
+def fmt_num(x, d=0):
+    try:
+        if x is None or (isinstance(x, float) and np.isnan(x)):
+            return "-"
+        return f"{float(x):,.{d}f}"
+    except:
+        return "-"
+
+
+def to_float(x, default=0.0):
     try:
         if pd.isna(x):
             return default
         s = str(x).strip().replace(",", "")
-        s = s.replace("원", "").strip()
-        if s.endswith("%"):
-            s = s[:-1]
-        if s == "":
+        s = s.replace("₩", "").replace("원", "").strip()
+        s = s.replace("%", "")
+        if s == "" or s.lower() == "nan":
             return default
         return float(s)
-    except Exception:
+    except:
         return default
 
+
 def normalize_ratio(x):
-    """Supports 0.32, 32, '32%', etc -> 0~1"""
+    """
+    ratio supports 0.32, 32, '32%', etc.
+    returns 0~1 float
+    """
     v = to_float(x, default=np.nan)
     if np.isnan(v):
         return np.nan
     return v / 100.0 if v > 1 else v
+
 
 def normalize_shares(d: dict):
     d2 = {k: float(v or 0.0) for k, v in d.items()}
@@ -105,65 +129,154 @@ def normalize_shares(d: dict):
         return {k: 0.0 for k in d2}
     return {k: (v / s if v > 0 else 0.0) for k, v in d2.items()}
 
-def safe_str_cols(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df.columns = [str(c).strip() for c in df.columns]
-    return df
 
-def topN_plus_other(d: dict, n=8, other_label="기타"):
-    if not d:
-        return [], []
-    items = sorted(d.items(), key=lambda x: x[1], reverse=True)
-    top = items[:n]
-    other = sum(v for _, v in items[n:])
-    labels = [k for k, _ in top]
-    vals = [v for _, v in top]
-    if other > 0:
-        labels.append(other_label)
-        vals.append(other)
-    s = sum(vals)
-    if s > 0:
-        vals = [v / s for v in vals]
-    return labels, vals
+def soft_find_key(columns, keywords):
+    cols = [str(c).strip() for c in columns]
+    for kw in keywords:
+        for c in cols:
+            if kw in c:
+                return c
+    return None
 
-def donut_chart(labels, values, title=None, height=320):
-    df = pd.DataFrame({"라벨": labels, "비중": values})
-    fig = px.pie(df, values="비중", names="라벨", hole=0.52)
-    fig.update_traces(textinfo="percent+label")
-    fig.update_layout(height=height, margin=dict(t=30 if title else 10, b=10, l=10, r=10), title=title)
-    return fig
 
-# =========================================================
-# Loader: supports XLSX(all-in-one) and CSV(all-in-one)
-# =========================================================
-REQUIRED_ALLINONE = ["시나리오명", "노출 시나리오명"]
+# ============================================================
+# Data loader (xlsx / csv)
+# ============================================================
+def read_uploaded_to_raw_df(uploaded) -> pd.DataFrame:
+    name = uploaded.name.lower()
+    data = uploaded.getvalue()
 
-def read_uploaded(uploaded):
-    name = (uploaded.name or "").lower()
-    if name.endswith(".xlsx"):
-        df = pd.read_excel(uploaded)
-        df = safe_str_cols(df)
-        return df, "xlsx"
-    else:
-        raw = uploaded.getvalue()
-        text = raw.decode("utf-8-sig", errors="replace")
-        df = pd.read_csv(StringIO(text))
-        df = safe_str_cols(df)
-        return df, "csv"
+    # CSV
+    if name.endswith(".csv"):
+        raw_text = data.decode("utf-8-sig", errors="replace")
+        df_raw = pd.read_csv(StringIO(raw_text), header=None)
+        return df_raw
 
-def scenario_list_from_df(df: pd.DataFrame):
-    if df is None or "시나리오명" not in df.columns:
-        return []
-    s = df["시나리오명"].dropna().astype(str).str.strip()
-    s = [x for x in s if x and x != "시나리오명"]
-    return sorted(list(dict.fromkeys(s)))
+    # XLSX
+    if name.endswith(".xlsx") or name.endswith(".xls"):
+        # Try all sheets, pick first where a cell == "시나리오명" exists
+        xls = pd.ExcelFile(uploaded)
+        for sh in xls.sheet_names:
+            df = pd.read_excel(uploaded, sheet_name=sh, header=None)
+            # detect "시나리오명" anywhere
+            if (df.astype(str) == "시나리오명").any().any():
+                return df
+        # fallback: first sheet
+        return pd.read_excel(uploaded, sheet_name=0, header=None)
 
-# =========================================================
-# Scenario Key Parser
-# =========================================================
-SCENARIO_KEY_RE = re.compile(
-    r"^ST-(?P<st>NEW|EARLY|GROW|MATURE)__DRV-(?P<drv>[^_]+)__CAT-(?P<cat>.+?)__POS-(?P<pos>[LMP])$"
-)
+    raise ValueError("지원하지 않는 파일 형식입니다. (csv/xlsx만 지원)")
+
+
+# ============================================================
+# preprocess_data: stacked tables split by header row where col0 == "시나리오명"
+# ============================================================
+def preprocess_data(df_raw: pd.DataFrame) -> Dict[str, pd.DataFrame]:
+    # find header rows (col0 == '시나리오명')
+    col0 = df_raw.iloc[:, 0].astype(str).str.strip()
+    header_idx = df_raw.index[col0.eq("시나리오명")].tolist()
+    if not header_idx:
+        # Some data may have '시나리오명' not in col0; try search any cell row-wise
+        mask = df_raw.astype(str).apply(lambda r: (r == "시나리오명").any(), axis=1)
+        header_idx = df_raw.index[mask].tolist()
+        if not header_idx:
+            raise ValueError("스택형 데이터에서 '시나리오명' 헤더 행을 찾지 못했습니다.")
+
+    sections = []
+    for i, h in enumerate(header_idx):
+        start = h
+        end = header_idx[i + 1] - 1 if i + 1 < len(header_idx) else len(df_raw) - 1
+        sec = df_raw.iloc[start : end + 1].copy()
+
+        # drop all-empty columns
+        non_empty_cols = [c for c in sec.columns if not sec[c].isna().all()]
+        sec = sec[non_empty_cols]
+
+        # header row
+        header = sec.iloc[0].tolist()
+        header = [str(x).strip() if pd.notna(x) else "" for x in header]
+
+        # unique/clean header
+        seen = {}
+        clean_header = []
+        for j, name in enumerate(header):
+            if name == "" or name.lower().startswith("unnamed"):
+                name = f"_COL_{j+1}"
+            if name in seen:
+                seen[name] += 1
+                name = f"{name}_{seen[name]}"
+            else:
+                seen[name] = 1
+            clean_header.append(name)
+
+        body = sec.iloc[1:].copy()
+        body.columns = clean_header
+        body = body.dropna(how="all")
+
+        if "시나리오명" in body.columns:
+            body["시나리오명"] = body["시나리오명"].astype(str).str.strip()
+
+        sections.append(body)
+
+    out = {"_sections": sections}
+
+    def has_any(cols, keywords):
+        s = " ".join([str(c) for c in cols])
+        return any(k in s for k in keywords)
+
+    # classify
+    for sec in sections:
+        cols = sec.columns.tolist()
+
+        # KPI
+        if "kpi" not in out and has_any(cols, ["CPC", "CTR", "CVR", "재구매율", "CPM", "목표"]):
+            out["kpi"] = sec
+            continue
+
+        # channel mix
+        if "channel_mix" not in out and has_any(
+            cols, ["스마트스토어", "올리브영", "백화점", "쿠팡", "자사몰", "오픈마켓", "홈쇼핑", "공구", "B2B", "온라인", "오프라인"]
+        ):
+            out["channel_mix"] = sec
+            continue
+
+        # media mix (performance/viral/brand detailed)
+        if "media_mix" not in out and has_any(cols, ["퍼포먼스", "바이럴", "브랜드", "구글", "메타", "틱톡", "네이버", "외부몰PA"]):
+            out["media_mix"] = sec
+            continue
+
+        # ad alloc (simple)
+        if "ad_alloc" not in out and has_any(cols, ["광고비"]):
+            out["ad_alloc"] = sec
+            continue
+
+    return out
+
+
+def scenario_list_from_sections(sections_dict: Dict[str, pd.DataFrame]) -> List[str]:
+    names = set()
+    for k, v in sections_dict.items():
+        if isinstance(v, pd.DataFrame) and "시나리오명" in v.columns:
+            for x in v["시나리오명"].dropna().astype(str):
+                x = x.strip()
+                if x and x != "시나리오명":
+                    names.add(x)
+    return sorted(names)
+
+
+def get_row_by_scenario(df: Optional[pd.DataFrame], scenario_key: str) -> Optional[pd.Series]:
+    if df is None or not isinstance(df, pd.DataFrame) or "시나리오명" not in df.columns:
+        return None
+    sub = df[df["시나리오명"].astype(str).str.strip() == str(scenario_key).strip()]
+    if sub.empty:
+        return None
+    return sub.iloc[0]
+
+
+# ============================================================
+# Scenario display mapping (Korean labels)
+# ============================================================
+SCENARIO_KEY_RE = re.compile(r"^ST-(?P<st>NEW|EARLY|GROW|MATURE)__DRV-(?P<drv>[A-Z0-9]+)__CAT-(?P<cat>.+?)__POS-(?P<pos>[LMP])$")
+
 
 def parse_scenario_key(name: str):
     name = str(name or "").strip()
@@ -172,125 +285,99 @@ def parse_scenario_key(name: str):
         return None
     return {"ST": m.group("st"), "DRV": m.group("drv"), "CAT": m.group("cat"), "POS": m.group("pos")}
 
-# =========================================================
-# KPI parsing
-# =========================================================
-TOKEN_ALIASES = {
-    "CPM": ["CPM"],
-    "CTR": ["CTR", "CLICKRATE", "클릭률"],
-    "CVR": ["CVR", "CONVRATE", "전환율"],
-    "CPC": ["CPC"],
-}
 
-def pick_kpi_for_media_from_row(row: pd.Series, media: str):
-    if row is None:
-        return {}
-    idx = list(row.index.astype(str))
-    out = {}
-    for token, aliases in TOKEN_ALIASES.items():
-        found = None
-        for al in aliases:
-            exact = f"KPI_{al}_{media}"
-            if exact in idx:
-                found = exact
-                break
-        if not found:
-            for al in aliases:
-                exact2 = f"{media}_{al}"
-                if exact2 in idx:
-                    found = exact2
-                    break
-        if not found:
-            for c in idx:
-                cc = str(c)
-                if (media in cc) and any(al in cc for al in aliases):
-                    found = c
-                    break
-        if found:
-            v = to_float(row[found], default=np.nan)
-            if not np.isnan(v):
-                if token in ("CTR", "CVR") and v > 1:
-                    v = v / 100.0
-                out[token] = float(v)
-    return out
-
-def fallback_kpi_for_media(media: str):
-    m = str(media or "")
-    if ("네이버" in m and "SA" in m) or ("구글" in m and "SA" in m):
-        return {"CPC": 900.0, "CVR": 0.03}
-    if ("외부몰PA" in m) or ("쿠팡" in m):
-        return {"CPC": 700.0, "CVR": 0.025}
-    if ("메타" in m) or ("틱톡" in m) or ("크리테오" in m) or ("GDN" in m) or ("GFA" in m) or ("유튜브" in m):
-        return {"CPM": 9000.0, "CTR": 0.012, "CVR": 0.02}
-    return {"CPM": 10000.0, "CTR": 0.008, "CVR": 0.01}
-
-def derive_cpc(kpi: dict):
-    if kpi.get("CPC") and kpi["CPC"] > 0:
-        return float(kpi["CPC"])
-    cpm = kpi.get("CPM")
-    ctr = kpi.get("CTR")
-    if cpm and ctr and cpm > 0 and ctr > 0:
-        return float(cpm) / (1000.0 * float(ctr))
+def find_display_col(df: Optional[pd.DataFrame]) -> Optional[str]:
+    if df is None or not isinstance(df, pd.DataFrame):
+        return None
+    candidates = ["노출용 시나리오명", "노출 시나리오명", "시나리오명(노출)", "시나리오명_노출", "scenario_display"]
+    for c in df.columns:
+        if str(c).strip() in candidates:
+            return c
+    # fallback: contains "노출"
+    for c in df.columns:
+        if "노출" in str(c):
+            return c
     return None
 
-# =========================================================
-# Mix builders from all-in-one row
-# =========================================================
-def build_channel_mix_from_row(row: pd.Series):
-    """Use columns ending with '매출비중' -> normalized shares"""
-    if row is None:
-        return {}
-    cols = [c for c in row.index.astype(str) if str(c).endswith("매출비중")]
-    raw = {}
-    for c in cols:
-        v = normalize_ratio(row.get(c))
-        if v is None or (isinstance(v, float) and np.isnan(v)):
-            continue
-        if float(v) > 0:
-            raw[c.replace("매출비중", "").strip()] = float(v)
-    return normalize_shares(raw)
 
-def build_media_grouped_from_row(row: pd.Series):
+def build_scenario_display_map(sections: Dict[str, pd.DataFrame], scenario_keys: List[str]) -> Dict[str, str]:
+    # Try find display column from any section
+    disp_col = None
+    src_df = None
+    for k in ["media_mix", "channel_mix", "ad_alloc", "kpi"]:
+        df = sections.get(k)
+        c = find_display_col(df)
+        if c:
+            disp_col = c
+            src_df = df
+            break
+
+    mapping = {}
+    if disp_col and src_df is not None:
+        tmp = src_df[["시나리오명", disp_col]].dropna()
+        for _, r in tmp.iterrows():
+            key = str(r["시나리오명"]).strip()
+            val = str(r[disp_col]).strip()
+            if key and val:
+                mapping[key] = val
+
+    # fallback: generate from key
+    for key in scenario_keys:
+        if key not in mapping:
+            p = parse_scenario_key(key)
+            if p:
+                # Simple readable fallback
+                pos_map = {"L": "가성비", "M": "밸류", "P": "프리미엄"}
+                st_map = {"NEW": "신규", "EARLY": "초기", "GROW": "성장", "MATURE": "성숙"}
+                mapping[key] = f"{st_map.get(p['ST'], p['ST'])} {p['CAT']} {pos_map.get(p['POS'], p['POS'])}"
+            else:
+                mapping[key] = key
+    return mapping
+
+
+# ============================================================
+# Media mix builders
+# ============================================================
+def build_media_budget_shares(mm_row: Optional[pd.Series]) -> dict:
     """
-    Uses columns like:
-      퍼포먼스마케팅_*, 바이럴마케팅_*, 브랜드 마케팅 / 기타_브랜드*
-    Excludes KPI_* and scenario columns.
+    From media_mix row:
+    - classify columns into performance / viral / brand
+    - compute group weights and per-channel shares
     """
-    out = {"performance": {}, "viral": {}, "brand": {}, "_group_weights": {"performance": 0, "viral": 0, "brand": 0}}
-    if row is None:
+    out = {"performance": {}, "viral": {}, "brand": {}, "_group_weights": {"performance": 0.0, "viral": 0.0, "brand": 0.0}}
+    if mm_row is None:
         return out
 
-    cols = [c for c in row.index.astype(str) if c not in ("시나리오명", "노출 시나리오명") and not str(c).startswith("KPI_")]
+    cols = [c for c in mm_row.index.astype(str) if c != "시나리오명" and "노출" not in str(c)]
+    # heuristics
+    perf_cols = [c for c in cols if ("퍼포먼스" in c) or (c.startswith("퍼포먼스마케팅_")) or ("외부몰PA" in c)]
+    viral_cols = [c for c in cols if ("바이럴" in c) or (c.startswith("바이럴마케팅_"))]
+    brand_cols = [c for c in cols if ("브랜드" in c)]
 
-    perf_cols = [c for c in cols if str(c).startswith("퍼포먼스마케팅_") or str(c).startswith("퍼포먼스_")]
-    viral_cols = [c for c in cols if str(c).startswith("바이럴마케팅_")]
-    brand_cols = [c for c in cols if ("브랜드" in str(c) and "마케팅" in str(c)) or str(c).startswith("기타_브랜드")]
+    # If rows are not labeled with prefixes, try fallback:
+    if not perf_cols and not viral_cols and not brand_cols:
+        # Treat anything containing "SA/GDN/DA/PMAX/메타/구글/네이버/틱톡" as performance
+        perf_cols = [c for c in cols if any(k in c for k in ["SA", "GDN", "DA", "PMAX", "메타", "구글", "네이버", "틱톡", "크리테오"])]
+        viral_cols = [c for c in cols if any(k in c for k in ["블로그", "지식인", "인플루", "핫딜", "카페", "커뮤니티", "씨딩", "바이럴", "체험단"])]
+        brand_cols = [c for c in cols if any(k in c for k in ["브랜딩", "브랜드", "PR"])]
 
-    perf_raw, viral_raw, brand_raw = {}, {}, {}
+    def extract(cols_):
+        raw = {c: normalize_ratio(mm_row.get(c)) for c in cols_}
+        raw = {k: (0.0 if (v is None or np.isnan(v)) else float(v)) for k, v in raw.items()}
+        return raw
 
-    for c in perf_cols:
-        v = normalize_ratio(row.get(c))
-        if not (v is None or (isinstance(v, float) and np.isnan(v))) and float(v) > 0:
-            perf_raw[c] = float(v)
+    perf_raw = extract(perf_cols)
+    viral_raw = extract(viral_cols)
+    brand_raw = extract(brand_cols)
 
-    for c in viral_cols:
-        v = normalize_ratio(row.get(c))
-        if not (v is None or (isinstance(v, float) and np.isnan(v))) and float(v) > 0:
-            viral_raw[c] = float(v)
-
-    for c in brand_cols:
-        v = normalize_ratio(row.get(c))
-        if not (v is None or (isinstance(v, float) and np.isnan(v))) and float(v) > 0:
-            brand_raw[c] = float(v)
-
-    perf_total = sum(perf_raw.values())
-    viral_total = sum(viral_raw.values())
-    brand_total = sum(brand_raw.values())
+    perf_total = sum(v for v in perf_raw.values() if v > 0)
+    viral_total = sum(v for v in viral_raw.values() if v > 0)
+    brand_total = sum(v for v in brand_raw.values() if v > 0)
     grand = perf_total + viral_total + brand_total
 
-    out["performance"] = normalize_shares(perf_raw) if perf_raw else {}
-    out["viral"] = normalize_shares(viral_raw) if viral_raw else {}
-    out["brand"] = normalize_shares(brand_raw) if brand_raw else {}
+    out["performance"] = {k: v for k, v in normalize_shares(perf_raw).items() if v > 0}
+    out["viral"] = {k: v for k, v in normalize_shares(viral_raw).items() if v > 0}
+    out["brand"] = {k: v for k, v in normalize_shares(brand_raw).items() if v > 0}
 
     if grand > 0:
         out["_group_weights"]["performance"] = perf_total / grand
@@ -299,891 +386,908 @@ def build_media_grouped_from_row(row: pd.Series):
 
     return out
 
-def overall_media_share(adg, media):
-    gw = adg.get("_group_weights", {"performance": 0, "viral": 0, "brand": 0})
-    if media in adg.get("performance", {}):
-        return gw["performance"] * adg["performance"][media]
-    if media in adg.get("viral", {}):
-        return gw["viral"] * adg["viral"][media]
-    if media in adg.get("brand", {}):
-        return gw["brand"] * adg["brand"][media]
-    return 0.0
 
-# =========================================================
-# Expected CAC
-# =========================================================
-def calc_expected_cac(total_budget, adg, kpi_row, include_viral_if_kpi_missing=False):
-    if total_budget <= 0:
-        return {"expected_clicks": 0.0, "expected_conversions": 0.0, "expected_CAC": None, "media_contrib": []}
+def donut_chart(labels, values, title="", height=320):
+    df = pd.DataFrame({"label": labels, "value": values})
+    df = df[df["value"] > 0]
+    if df.empty:
+        fig = go.Figure()
+        fig.update_layout(height=height, margin=dict(t=40, l=10, r=10, b=10), title=title)
+        return fig
 
-    gw = adg.get("_group_weights", {"performance": 0, "viral": 0, "brand": 0})
+    fig = px.pie(df, values="value", names="label", hole=0.55)
+    fig.update_traces(textinfo="percent+label")
+    fig.update_layout(height=height, margin=dict(t=40, l=10, r=10, b=10), title=title)
+    return fig
 
-    overall = {}
-    for m, v in adg.get("performance", {}).items():
-        overall[m] = overall.get(m, 0.0) + gw["performance"] * v
-    for m, v in adg.get("viral", {}).items():
-        overall[m] = overall.get(m, 0.0) + gw["viral"] * v
-    for m, v in adg.get("brand", {}).items():
-        overall[m] = overall.get(m, 0.0) + gw["brand"] * v
 
-    overall = normalize_shares(overall)
+# ============================================================
+# Channel mix (100% donut)
+# ============================================================
+def build_channel_mix_shares(ch_row: Optional[pd.Series]) -> dict:
+    """
+    returns shares across channels in that row (excluding scenario fields)
+    """
+    if ch_row is None:
+        return {}
+    tmp = ch_row.drop(labels=["시나리오명"], errors="ignore")
+    # drop display columns if exist
+    for c in list(tmp.index):
+        if "노출" in str(c):
+            tmp = tmp.drop(labels=[c], errors="ignore")
 
-    contrib = []
-    total_clicks = 0.0
-    total_convs = 0.0
+    vals = tmp.apply(normalize_ratio).dropna()
+    vals = vals[vals > 0]
+    if vals.empty:
+        return {}
+    return normalize_shares(vals.to_dict())
 
-    for media, share in overall.items():
-        budget_i = total_budget * share
-        if budget_i <= 0:
-            continue
 
-        kpi = pick_kpi_for_media_from_row(kpi_row, media)
-        kpi_is_fallback = False
-        if not kpi:
-            kpi = fallback_kpi_for_media(media)
-            kpi_is_fallback = True
+# ============================================================
+# KPI utilities
+# ============================================================
+def kpi_value(kpi_row: Optional[pd.Series], keywords: List[str], default: float) -> float:
+    if kpi_row is None:
+        return default
+    cols = [str(c) for c in kpi_row.index]
+    # exact keyword
+    for kw in keywords:
+        for c in cols:
+            if str(c).strip() == kw:
+                return to_float(kpi_row[c], default)
+    # fuzzy
+    for kw in keywords:
+        for c in cols:
+            if kw in str(c):
+                return to_float(kpi_row[c], default)
+    return default
 
-        is_viral = str(media).startswith("바이럴마케팅_")
-        if is_viral and kpi_is_fallback and not include_viral_if_kpi_missing:
-            contrib.append({"channel": media, "budget": budget_i, "CPC": None, "clicks": 0.0, "conversions": 0.0, "note": "viral_kpi_missing_excluded"})
-            continue
 
-        cpc = derive_cpc(kpi)
-        cvr = float(kpi.get("CVR", 0.0) or 0.0)
-        if (cpc is None) or cpc <= 0 or cvr <= 0:
-            contrib.append({"channel": media, "budget": budget_i, "CPC": cpc, "clicks": 0.0, "conversions": 0.0, "note": "kpi_insufficient"})
-            continue
+# ============================================================
+# P&L simulation core
+# - supports two modes:
+#   1) ad -> revenue
+#   2) revenue -> required ad
+# - Contribution margin rule: (매출-광고-물류-원가)/매출
+# ============================================================
+def simulate_pl(
+    mode: str,
+    aov: float,
+    cpc: float,
+    cvr: float,
+    cost_rate: float,
+    logistics_per_order: float,
+    headcount: int,
+    cost_per_head: float,
+    ad_spend: Optional[float] = None,
+    revenue: Optional[float] = None,
+) -> dict:
+    labor = float(headcount) * float(cost_per_head)
 
-        clicks = budget_i / float(cpc)
-        convs = clicks * float(cvr)
+    if mode == "광고비 입력 → 매출 산출":
+        ad_spend = float(ad_spend or 0.0)
+        clicks = ad_spend / cpc if cpc > 0 else 0.0
+        orders = clicks * cvr
+        revenue = orders * aov
+    else:
+        revenue = float(revenue or 0.0)
+        orders = revenue / aov if aov > 0 else 0.0
+        clicks = orders / cvr if cvr > 0 else 0.0
+        ad_spend = clicks * cpc
 
-        total_clicks += clicks
-        total_convs += convs
+    cogs = revenue * cost_rate
+    logistics = orders * logistics_per_order
+    profit = revenue - (ad_spend + cogs + logistics + labor)
+    contrib_margin = ((revenue - ad_spend - logistics - cogs) / revenue * 100.0) if revenue > 0 else 0.0
+    roas = (revenue / ad_spend) if ad_spend and ad_spend > 0 else 0.0
 
-        contrib.append({"channel": media, "budget": budget_i, "CPC": float(cpc), "clicks": clicks, "conversions": convs, "note": "fallback_kpi" if kpi_is_fallback else "ok"})
+    return {
+        "revenue": float(revenue),
+        "ad_spend": float(ad_spend),
+        "clicks": float(clicks),
+        "orders": float(orders),
+        "cogs": float(cogs),
+        "logistics": float(logistics),
+        "labor": float(labor),
+        "profit": float(profit),
+        "contrib_margin": float(contrib_margin),
+        "roas": float(roas),
+    }
 
-    expected_cac = (total_budget / total_convs) if total_convs > 0 else None
-    return {"expected_clicks": total_clicks, "expected_conversions": total_convs, "expected_CAC": expected_cac, "media_contrib": contrib}
 
-# =========================================================
-# Recommendation scoring (rule-based)
-# =========================================================
-WEIGHTS = {"channel_match": 45.0, "drv_bonus": 25.0, "channel_ad_link": 20.0, "demo_keyword": 10.0}
+# ============================================================
+# Viral unit cost default template (editable)
+# - If media_mix has viral surfaces columns, we will match by name.
+# ============================================================
+DEFAULT_VIRAL_PRICE = [
+    {"매체": "네이버", "지면": "네이버_인플루언서탭", "건당비용": 250000},
+    {"매체": "네이버", "지면": "네이버_스마트블록", "건당비용": 250000},
+    {"매체": "네이버", "지면": "네이버_지식인", "건당비용": 100000},
+    {"매체": "네이버", "지면": "네이버_쇼핑상위", "건당비용": 2000000},
+    {"매체": "네이버", "지면": "네이버_인기글", "건당비용": 300000},
+    {"매체": "네이버", "지면": "네이버_자동검색완성", "건당비용": 400000},
+    {"매체": "네이버", "지면": "네이버_카페침투바이럴", "건당비용": 30000},
+    {"매체": "네이버", "지면": "네이버_구매대행", "건당비용": 120060},
+    {"매체": "네이버", "지면": "네이버_핫딜", "건당비용": 100000},
+    {"매체": "인스타그램", "지면": "인스타그램_파워페이지", "건당비용": 400000},
+    {"매체": "인스타그램", "지면": "인스타그램_해시태그상위노출", "건당비용": 500000},
+    {"매체": "인스타그램", "지면": "인스타그램_계정상위노출", "건당비용": 400000},
+    {"매체": "오늘의집", "지면": "오늘의집 집들이", "건당비용": 500000},
+    {"매체": "오늘의집", "지면": "오늘의집 체험단", "건당비용": 400000},
+    {"매체": "오늘의집", "지면": "오늘의집 구매대행", "건당비용": 200952},
+    {"매체": "기타 커뮤니티", "지면": "커뮤니티_핫딜", "건당비용": 200000},
+]
 
-DRV_PRIMARY = {
-    "자사몰 중심": "D2C",
-    "온라인 중심": "COM",
-    "홈쇼핑 중심": "HSP",
-    "공구 중심": "GB",
-    "B2B 중심": "B2B",
-}
-DRV_SECONDARY = {"자사몰 중심": "PERF", "온라인 중심": "PERF", "홈쇼핑 중심": None, "공구 중심": None, "B2B 중심": None}
 
-LEVEL_SCORE = {
-    "매우낮음(~3,000)": 0.0,
-    "낮음(3,000~10,000)": 0.25,
-    "중간(10,000~20,000)": 0.5,
-    "높음(20,000~30,000)": 0.75,
-    "매우높음(35,000~)": 1.0,
-    "매우낮음(~300)": 0.0,
-    "낮음(300~1,000)": 0.25,
-    "중간(1,000~4,000)": 0.5,
-    "높음(4,000~8,000)": 0.75,
-    "매우높음(8,000~)": 1.0,
-}
-
-def score_channel_match(channel_mix_norm, sales_focus):
-    target_kw = {
-        "자사몰 중심": ["자사몰"],
-        "온라인 중심": ["온라인", "스마트스토어", "쿠팡", "오픈마켓", "마켓"],
-        "홈쇼핑 중심": ["홈쇼핑"],
-        "공구 중심": ["공구", "공동구매"],
-        "B2B 중심": ["B2B", "도매"],
-    }.get(sales_focus, [])
-    if not target_kw:
-        return 0.0
-    best = 0.0
-    for ch, v in channel_mix_norm.items():
-        if any(kw in ch for kw in target_kw):
-            best = max(best, float(v))
-    return float(best)
-
-def score_drv_bonus(drv, sales_focus, operator):
-    drv = str(drv or "").strip()
-    primary = DRV_PRIMARY.get(sales_focus)
-    secondary = DRV_SECONDARY.get(sales_focus)
-
-    operator_bonus = 0.0
-    if operator == "대행사(마케팅만)" and drv in ("PERF", "VIR", "COM", "D2C"):
-        operator_bonus = 0.15
-
-    if primary and drv == primary:
-        return min(1.0, 1.0 + operator_bonus)
-    if secondary and drv == secondary:
-        return min(1.0, 0.6 + operator_bonus)
-    return max(0.15, 0.25 + operator_bonus)
-
-def score_channel_ad_link(channel_mix_norm, adg, sales_focus, online_market_focus):
-    meta = overall_media_share(adg, "퍼포먼스마케팅_메타")
-    ext_pa = overall_media_share(adg, "퍼포먼스_외부몰PA")
-    naver_sa = overall_media_share(adg, "퍼포먼스마케팅_네이버 SA")
-    google_sa = overall_media_share(adg, "퍼포먼스마케팅_구글 SA")
-    naver_blog = overall_media_share(adg, "바이럴마케팅_네이버 블로그")
-    ig_mega = overall_media_share(adg, "바이럴마케팅_인스타그램 씨딩(메가)")
-    google_gdn = overall_media_share(adg, "퍼포먼스마케팅_구글 GDN")
-    tiktok = overall_media_share(adg, "퍼포먼스마케팅_틱톡")
-
-    score = 0.0
-    if sales_focus == "자사몰 중심":
-        score += min(1.0, meta * 3.0) * 0.6
-
-    elif sales_focus == "온라인 중심":
-        if online_market_focus == "스마트스토어 중심":
-            score += min(1.0, naver_sa * 3.0) * 0.45
-            score += min(1.0, meta * 3.0) * 0.35
-            score += min(1.0, google_sa * 3.0) * 0.2
+def extract_viral_surfaces_from_media_mix(mm_row: Optional[pd.Series]) -> List[str]:
+    if mm_row is None:
+        return []
+    cols = [c for c in mm_row.index.astype(str) if c not in ["시나리오명"]]
+    # viral columns are those containing "바이럴" OR those matching known surface tokens
+    surface_like = []
+    for c in cols:
+        if "바이럴" in c:
+            # could be "바이럴마케팅_네이버_지식인" -> keep as is
+            surface_like.append(c)
         else:
-            score += min(1.0, ext_pa * 3.0) * 0.6
-            score += 0.4 if ext_pa >= meta else 0.15
+            # also allow "네이버_지식인" style
+            if any(token in c for token in ["네이버_", "인스타그램_", "오늘의집", "커뮤니티_"]):
+                surface_like.append(c)
+    # remove obvious non-surface (ex: 바이럴 총합)
+    surface_like = [s for s in surface_like if "종합" not in s and "Total" not in s and "총합" not in s]
+    return sorted(list(set(surface_like)))
 
-    elif sales_focus == "홈쇼핑 중심":
-        core = naver_sa + naver_blog + ext_pa
-        score += min(1.0, core * 2.5) * 0.7
-        penalty = meta + google_gdn + tiktok
-        score += max(0.0, 1.0 - penalty * 2.0) * 0.3
 
-    elif sales_focus == "공구 중심":
-        score += min(1.0, score_channel_match(channel_mix_norm, "공구 중심") * 1.8) * 0.5
-        score += min(1.0, ig_mega * 4.0) * 0.5
+def build_viral_allocation(
+    viral_total_budget: float,
+    mm_row: Optional[pd.Series],
+    viral_price_df: pd.DataFrame,
+    rounding_unit: int = 100,
+) -> pd.DataFrame:
+    """
+    - allocate budget to surfaces using scenario viral ratios if available
+    - compute count = round(allocated_budget / unit_cost)
+    - total_cost = count * unit_cost
+    - slight mismatch with budget is OK
+    """
+    viral_total_budget = float(viral_total_budget)
 
-    elif sales_focus == "B2B 중심":
-        brand_share = sum(adg.get("brand", {}).values()) if isinstance(adg.get("brand"), dict) else 0.0
-        score += min(1.0, naver_sa * 3.0) * 0.6
-        score += min(1.0, brand_share * 3.0) * 0.4
+    # Determine ratio source from media_mix row:
+    surface_cols = extract_viral_surfaces_from_media_mix(mm_row)
+    ratios = {}
 
-    return float(max(0.0, min(1.0, score)))
+    if mm_row is not None and surface_cols:
+        for c in surface_cols:
+            v = normalize_ratio(mm_row.get(c))
+            if not np.isnan(v) and v > 0:
+                ratios[c] = float(v)
 
-def score_demo_keyword(adg, payload):
-    gw = adg.get("_group_weights", {"performance": 0, "viral": 0, "brand": 0})
-    perf_sum, viral_sum, brand_sum = gw["performance"], gw["viral"], gw["brand"]
+    # If ratios are empty, fallback: equal split across price list surfaces
+    if not ratios:
+        for s in viral_price_df["지면"].astype(str).tolist():
+            ratios[s] = 1.0
 
-    no_comp = payload["no_competitor_intent"]
-    comp_lv = payload.get("competitor_keyword_level")
-    brand_lv = payload["brand_keyword_level"]
-    age = payload["target_age"]
+    ratios = normalize_shares(ratios)
 
-    score = 0.0
-    if no_comp:
-        score += min(1.0, (viral_sum + brand_sum) * 1.7) * 0.4
-    else:
-        comp_v = LEVEL_SCORE.get(comp_lv, 0.5)
-        score += min(1.0, perf_sum * (1.0 + comp_v)) * 0.4
+    # Allocate
+    rows = []
+    for surface, share in ratios.items():
+        planned = viral_total_budget * share
+        # round to nearest 100
+        planned = int(round(planned / rounding_unit) * rounding_unit)
 
-    brand_v = LEVEL_SCORE.get(brand_lv, 0.5)
-    if brand_v <= 0.25:
-        score += min(1.0, (viral_sum + brand_sum) * 1.5) * 0.3
-    elif brand_v >= 0.75:
-        score += min(1.0, perf_sum * 1.3) * 0.3
-    else:
-        score += 0.15
+        # Match unit cost by "지면" contains or equals
+        cost = None
+        matched = viral_price_df[viral_price_df["지면"].astype(str) == str(surface)]
+        if matched.empty:
+            # try fuzzy: last token
+            for _, r in viral_price_df.iterrows():
+                if str(r["지면"]) in str(surface) or str(surface) in str(r["지면"]):
+                    cost = to_float(r["건당비용"], 0.0)
+                    media = r["매체"]
+                    break
+            if cost is None:
+                cost = 0.0
+                media = "기타"
+        else:
+            cost = to_float(matched.iloc[0]["건당비용"], 0.0)
+            media = matched.iloc[0]["매체"]
 
-    if age in ("10대", "20대"):
-        score += min(
-            1.0,
-            (
-                overall_media_share(adg, "퍼포먼스마케팅_틱톡")
-                + overall_media_share(adg, "바이럴마케팅_인스타그램 씨딩(메가)")
-                + overall_media_share(adg, "바이럴마케팅_인스타그램 씨딩(노말)")
-            )
-            * 3.0,
-        ) * 0.3
-    else:
-        score += min(
-            1.0,
-            (overall_media_share(adg, "퍼포먼스마케팅_네이버 SA") + overall_media_share(adg, "바이럴마케팅_네이버 블로그")) * 3.0,
-        ) * 0.3
+        count = int(round(planned / cost)) if cost > 0 else 0
+        total_cost = count * cost
 
-    return float(max(0.0, min(1.0, score)))
-
-def build_why(channel_mix_norm, adg):
-    top_rev = sorted(channel_mix_norm.items(), key=lambda x: x[1], reverse=True)[:3]
-    rev_txt = ", ".join([f"{k} {v:.0%}" for k, v in top_rev if v > 0]) or "-"
-
-    gw = adg.get("_group_weights", {"performance": 0, "viral": 0, "brand": 0})
-    overall = {}
-    for m, v in adg.get("performance", {}).items():
-        overall[m] = overall.get(m, 0.0) + gw["performance"] * v
-    for m, v in adg.get("viral", {}).items():
-        overall[m] = overall.get(m, 0.0) + gw["viral"] * v
-    for m, v in adg.get("brand", {}).items():
-        overall[m] = overall.get(m, 0.0) + gw["brand"] * v
-    overall = normalize_shares(overall)
-
-    top_ad = sorted(overall.items(), key=lambda x: x[1], reverse=True)[:3]
-    ad_txt = ", ".join([f"{k} {v:.0%}" for k, v in top_ad if v > 0]) or "-"
-
-    return [
-        f"매출채널 상위: {rev_txt}",
-        f"미디어믹스 상위: {ad_txt}",
-        f"그룹 비중: 퍼포 {gw.get('performance',0):.0%} / 바이럴 {gw.get('viral',0):.0%} / 브랜드 {gw.get('brand',0):.0%}",
-    ]
-
-def recommend_top3_allinone(payload, df_all: pd.DataFrame, key_to_label: dict):
-    scenarios = scenario_list_from_df(df_all)
-    meta_map = {s: parse_scenario_key(s) for s in scenarios}
-
-    candidates = []
-    for s in scenarios:
-        m = meta_map.get(s)
-        if m and m.get("ST"):
-            if m["ST"] == payload["stage"] and m["CAT"] == payload["category"] and m["POS"] == payload["position"]:
-                candidates.append(s)
-    if not candidates:
-        candidates = scenarios[:]  # fallback
-
-    results = []
-    for s in candidates:
-        rowdf = df_all[df_all["시나리오명"].astype(str).str.strip() == str(s).strip()]
-        if rowdf.empty:
-            continue
-        row = rowdf.iloc[0]
-
-        m = meta_map.get(s) or {}
-        drv = m.get("DRV")
-
-        channel_mix_norm = build_channel_mix_from_row(row)
-        adg = build_media_grouped_from_row(row)
-
-        a = score_channel_match(channel_mix_norm, payload["sales_focus_channel"])
-        b = score_drv_bonus(drv, payload["sales_focus_channel"], payload["operator"])
-        c = score_channel_ad_link(channel_mix_norm, adg, payload["sales_focus_channel"], payload.get("online_market_focus"))
-        d = score_demo_keyword(adg, payload)
-
-        total = (
-            a * WEIGHTS["channel_match"]
-            + b * WEIGHTS["drv_bonus"]
-            + c * WEIGHTS["channel_ad_link"]
-            + d * WEIGHTS["demo_keyword"]
-        ) / sum(WEIGHTS.values()) * 100.0
-
-        expected = calc_expected_cac(
-            total_budget=float(payload["total_ad_budget_krw"]),
-            adg=adg,
-            kpi_row=row,
-            include_viral_if_kpi_missing=bool(payload.get("include_viral_conversions_if_kpi_missing", False)),
-        )
-
-        results.append(
+        rows.append(
             {
-                "scenario_key": s,
-                "scenario_label": key_to_label.get(s, s),
-                "score": float(max(0.0, min(100.0, total))),
-                "why": build_why(channel_mix_norm, adg),
-                "expected_metrics": expected,
+                "구분": "바이럴",
+                "매체": media,
+                "지면": surface,
+                "건당비용": cost,
+                "진행 건수": count,
+                "계획비(청구비)": planned,
+                "총비용(계산)": total_cost,
             }
         )
 
-    results.sort(key=lambda x: x["score"], reverse=True)
-    return {"input": payload, "candidate_count": len(candidates), "recommendations": results[:3]}
+    df = pd.DataFrame(rows)
+    # order
+    df = df.sort_values(["매체", "지면"]).reset_index(drop=True)
+    return df
 
-# =========================================================
+
+# ============================================================
+# Performance allocation + billing (agency internal/external)
+# ============================================================
+def build_performance_allocation(
+    perf_total_budget: float,
+    adg: dict,
+    rounding_unit: int = 100,
+) -> pd.DataFrame:
+    perf_total_budget = float(perf_total_budget)
+    perf = adg.get("performance", {}) if isinstance(adg, dict) else {}
+    if not perf:
+        return pd.DataFrame(columns=["구분", "구분2", "매체", "예산(집행)"])
+
+    perf = normalize_shares(perf)
+    rows = []
+    for media, share in perf.items():
+        budget = perf_total_budget * share
+        budget = int(round(budget / rounding_unit) * rounding_unit)
+        rows.append({"구분": "퍼포먼스", "구분2": "광고", "매체": media, "예산(집행)": budget})
+    df = pd.DataFrame(rows).sort_values("예산(집행)", ascending=False).reset_index(drop=True)
+    return df
+
+
+def apply_agency_billing(perf_df: pd.DataFrame, fee_rate: float, payback_rate: float) -> pd.DataFrame:
+    """
+    - fee_rate: 대행수수료율 (0~)
+    - payback_rate: 페이백률 (0~)
+    billed = 집행 * (1+fee_rate)
+    payback = 집행 * payback_rate
+    net = billed - payback
+    """
+    if perf_df.empty:
+        return perf_df.copy()
+
+    fee_rate = float(fee_rate)
+    payback_rate = float(payback_rate)
+
+    df = perf_df.copy()
+    df["대행수수료율"] = fee_rate
+    df["페이백률"] = payback_rate
+    df["대행수수료(예상)"] = df["예산(집행)"] * fee_rate
+    df["청구예상비용"] = df["예산(집행)"] + df["대행수수료(예상)"]
+    df["페이백예상액"] = df["예산(집행)"] * payback_rate
+    df["청구예상(페이백차감)"] = df["청구예상비용"] - df["페이백예상액"]
+    return df
+
+
+# ============================================================
+# Scenario compare chart (bars + ROAS line on 0~100 secondary axis)
+# ============================================================
+def scenario_compare_chart(
+    df_cmp: pd.DataFrame,
+    view: str,
+    target_roas: float,
+    title: str,
+) -> go.Figure:
+    """
+    df_cmp columns:
+      시나리오, 매출, 광고비, 영업이익, 공헌이익률, ROAS
+    view:
+      '매출', '광고비', '영업이익', '공헌이익률', 'ROAS', '전체(3개 동시)'
+    ROAS line axis: 0~100 (% of target)
+    """
+    df = df_cmp.copy()
+
+    # ROAS percent of target (0~100)
+    target_roas = max(float(target_roas), 1e-9)
+    df["ROAS(달성률%)"] = (df["ROAS"] / target_roas) * 100.0
+    df["ROAS(달성률%)"] = df["ROAS(달성률%)"].clip(0, 100)
+
+    fig = go.Figure()
+
+    x = df["시나리오"].tolist()
+
+    if view in ["매출", "광고비", "영업이익"]:
+        fig.add_trace(go.Bar(name=view, x=x, y=df[view], yaxis="y", text=df[view].round(0)))
+    elif view == "공헌이익률":
+        fig.add_trace(go.Bar(name=view, x=x, y=df[view], yaxis="y", text=df[view].round(1)))
+    elif view == "ROAS":
+        fig.add_trace(
+            go.Scatter(
+                name="ROAS 달성률(%)",
+                x=x,
+                y=df["ROAS(달성률%)"],
+                mode="lines+markers",
+                yaxis="y2",
+            )
+        )
+    else:
+        # 전체(3개 동시): 매출/광고비 막대 + ROAS 달성률 꺾은선
+        fig.add_trace(go.Bar(name="매출", x=x, y=df["매출"], yaxis="y"))
+        fig.add_trace(go.Bar(name="광고비", x=x, y=df["광고비"], yaxis="y"))
+        fig.add_trace(
+            go.Scatter(
+                name="ROAS 달성률(%)",
+                x=x,
+                y=df["ROAS(달성률%)"],
+                mode="lines+markers",
+                yaxis="y2",
+            )
+        )
+
+    fig.update_layout(
+        title=title,
+        height=420,
+        margin=dict(t=60, l=10, r=10, b=10),
+        barmode="group",
+        xaxis=dict(tickangle=0),
+        yaxis=dict(title=None, showgrid=True),
+        yaxis2=dict(
+            title="ROAS 달성률(0~100%)",
+            overlaying="y",
+            side="right",
+            range=[0, 100],
+            showgrid=False,
+        ),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    return fig
+
+
+# ============================================================
 # Sidebar: Upload
-# =========================================================
+# ============================================================
 st.sidebar.title("마케팅/유통 시뮬레이터")
-uploaded = st.sidebar.file_uploader("Backdata 업로드 (XLSX/CSV)", type=["xlsx", "csv"], key="uploader_main")
+uploaded = st.sidebar.file_uploader("backdata 업로드 (xlsx/csv)", type=["xlsx", "xls", "csv"], key=mk("uploader"))
 
 if uploaded is None:
     st.info("좌측에서 backdata 파일(xlsx/csv)을 업로드하세요.")
     st.stop()
 
 try:
-    df_loaded, fmt = read_uploaded(uploaded)
+    df_raw = read_uploaded_to_raw_df(uploaded)
+    data = preprocess_data(df_raw)
 except Exception as e:
-    st.error(f"❌ 파일 로드 실패: {e}")
+    st.error(f"❌ 데이터 로드/파싱 실패: {e}")
     st.stop()
 
-is_all_in_one = all(c in df_loaded.columns for c in REQUIRED_ALLINONE)
-if not is_all_in_one:
-    st.error("❌ all-in-one 포맷이 아닙니다. 필수 컬럼: 시나리오명, 노출 시나리오명")
-    st.stop()
-
-df_all = df_loaded.copy()
-df_all["시나리오명"] = df_all["시나리오명"].astype(str).str.strip()
-df_all["노출 시나리오명"] = df_all["노출 시나리오명"].astype(str).str.strip()
-
-scenarios = scenario_list_from_df(df_all)
+scenarios = scenario_list_from_sections(data)
 if not scenarios:
-    st.error("❌ 시나리오 목록이 비어있습니다.")
+    st.error("❌ 시나리오 목록을 찾지 못했습니다. (각 섹션에 '시나리오명' 컬럼 필요)")
     st.stop()
 
-key_to_label = dict(zip(df_all["시나리오명"], df_all["노출 시나리오명"]))
+# section dfs
+ad_alloc_df = data.get("ad_alloc")
+channel_mix_df = data.get("channel_mix")
+media_mix_df = data.get("media_mix")
+kpi_df = data.get("kpi")
 
-# label uniqueness for UI
-label_counts = pd.Series(list(key_to_label.values())).value_counts().to_dict()
-key_to_label_ui = {}
-for k, v in key_to_label.items():
-    key_to_label_ui[k] = f"{v}  ({k})" if label_counts.get(v, 0) > 1 else v
+# display mapping
+scenario_display_map = build_scenario_display_map(data, scenarios)
+display_to_key = {v: k for k, v in scenario_display_map.items()}
 
-# category options from CAT in key
-parsed = [parse_scenario_key(s) for s in scenarios]
-cat_options = sorted(list({p["CAT"] for p in parsed if p and p.get("CAT")})) or ["(카테고리 파싱 실패)"]
-
-# =========================================================
-# Main tabs
-# =========================================================
+# ============================================================
+# Top tabs
+# ============================================================
 tab_rec, tab_dash = st.tabs(["✅ 추천 엔진", "📊 대시보드 (대행/브랜드)"])
 
-# =========================================================
-# TAB 1) Recommendation Engine
-# =========================================================
-# =========================================================
-# TAB 1) Recommendation Engine  (REPLACE THIS WHOLE BLOCK)
-# =========================================================
+# ============================================================
+# TAB 1) Recommendation Engine (kept, but JSON output removed)
+# ============================================================
 with tab_rec:
     st.markdown("## 추천 엔진")
-    st.markdown('<div class="smallcap">데이터 기반 Top3 추천 (룰 기반 스코어링 + KPI 기반 예상 CAC)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="smallcap">데이터 기반 Top3 추천 (룰 기반 스코어링 + KPI가 있으면 참고)</div>', unsafe_allow_html=True)
 
-    # ---------- 입력: 상단(접기 가능) ----------
-    with st.expander("입력 조건 (열기/닫기)", expanded=True):
-        c1, c2, c3 = st.columns(3)
-
-        with c1:
-            operator = st.selectbox(
-                "운영 주체",
-                ["내부브랜드 운영자", "브랜드사 운영자(클라이언트)", "대행사(마케팅만)"],
-                key="rec_operator",
-            )
-            stage = st.selectbox("단계(ST)", ["NEW", "EARLY", "GROW", "MATURE"], key="rec_stage")
-            category = st.selectbox("카테고리(CAT)", cat_options, key="rec_cat")
-
-        with c2:
-            position = st.selectbox("가격 포지셔닝(POS)", ["L", "M", "P"], key="rec_pos")
-            sales_focus_channel = st.selectbox(
-                "판매 중심 채널",
-                ["자사몰 중심", "온라인 중심", "홈쇼핑 중심", "공구 중심", "B2B 중심"],
-                key="rec_sales",
-            )
-            online_market_focus = None
-            if sales_focus_channel == "온라인 중심":
-                online_market_focus = st.selectbox(
-                    "온라인 마켓 포커스(옵션)",
-                    [None, "쿠팡 중심", "스마트스토어 중심"],
-                    format_func=lambda x: "미지정(자동)" if x is None else x,
-                    key="rec_online_focus",
-                )
-
-        with c3:
-            no_comp = st.toggle("경쟁키워드 판매의도 없음", value=True, key="rec_no_comp")
-            competitor_keyword_level = None
-            if not no_comp:
-                competitor_keyword_level = st.selectbox(
-                    "경쟁키워드 검색량 구간",
-                    ["매우낮음(~3,000)", "낮음(3,000~10,000)", "중간(10,000~20,000)", "높음(20,000~30,000)", "매우높음(35,000~)"],
-                    key="rec_comp_lv",
-                )
-
-            brand_keyword_level = st.selectbox(
-                "브랜드 키워드(인지도) 검색량 구간",
-                ["매우낮음(~300)", "낮음(300~1,000)", "중간(1,000~4,000)", "높음(4,000~8,000)", "매우높음(8,000~)"],
-                key="rec_brand_lv",
-            )
-            target_age = st.selectbox("주요 타겟 연령대", ["10대", "20대", "30대", "40대", "50대+"], key="rec_age")
-
-        c4, c5, c6 = st.columns([1, 1, 1])
-        with c4:
-            total_ad_budget_krw = st.number_input("총 광고예산(원)", value=50_000_000, step=1_000_000, min_value=1, key="rec_budget")
-        with c5:
-            include_viral_if_missing = st.toggle("바이럴 KPI 없더라도 전환 포함(권장X)", value=False, key="rec_include_viral")
-        with c6:
-            run = st.button("Top3 추천 계산", use_container_width=True, key="rec_run")
-
-    st.markdown("---")
-
-    # ---------- 결과: 아래(가독성 좋게) ----------
-    if not run:
-        st.info("입력 조건을 설정하고 **Top3 추천 계산**을 누르세요.")
-    else:
-        payload = {
-            "operator": operator,
-            "stage": stage,
-            "category": category,
-            "position": position,
-            "sales_focus_channel": sales_focus_channel,
-            "online_market_focus": online_market_focus,
-            "no_competitor_intent": bool(no_comp),
-            "competitor_keyword_level": competitor_keyword_level,
-            "brand_keyword_level": brand_keyword_level,
-            "target_age": target_age,
-            "total_ad_budget_krw": float(total_ad_budget_krw),
-            "include_viral_conversions_if_kpi_missing": bool(include_viral_if_missing),
-        }
-
-        out = recommend_top3_allinone(payload=payload, df_all=df_all, key_to_label=key_to_label)
-
-        h1, h2, h3 = st.columns(3)
-        h1.metric("후보 전략 수", f"{out.get('candidate_count', 0):,} 개")
-        h2.metric("추천 결과", f"{len(out.get('recommendations', []))} 개")
-        h3.metric("예산(입력)", fmt_won(total_ad_budget_krw))
-
-        recs = out.get("recommendations", [])
-        if not recs:
-            st.warning("추천 결과가 없습니다. (시나리오 키 규칙/카테고리 파싱/데이터 확인 필요)")
-        else:
-            # ✅ 보기 좋은 레이아웃 선택(토글)
-            layout = st.radio("결과 레이아웃", ["세로(1열)", "2열"], horizontal=True, key="rec_layout")
-
-            def render_card(i, r):
-                st.markdown("<div class='card'>", unsafe_allow_html=True)
-                st.markdown(f"### #{i+1} {r['scenario_label']}")
-                st.caption(r["scenario_key"])
-
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Score", f"{r['score']:.1f}")
-                m2.metric("예상 CAC", fmt_won(r["expected_metrics"]["expected_CAC"]))
-                m3.metric("예상 전환", f"{r['expected_metrics']['expected_conversions']:.1f}")
-
-                st.markdown("<hr class='soft'/>", unsafe_allow_html=True)
-                st.write("**요약 근거(3줄)**")
-                for line in r["why"]:
-                    st.write(f"- {line}")
-
-                with st.expander("상세(믹스 차트)", expanded=False):
-                    rowdf2 = df_all[df_all["시나리오명"].astype(str).str.strip() == str(r["scenario_key"]).strip()]
-                    row0 = rowdf2.iloc[0] if not rowdf2.empty else None
-
-                    ch = build_channel_mix_from_row(row0)
-                    adg_r = build_media_grouped_from_row(row0)
-                    gw_r = adg_r.get("_group_weights", {"performance": 0, "viral": 0, "brand": 0})
-
-                    st.plotly_chart(
-                        donut_chart(["퍼포먼스", "바이럴", "브랜드"],
-                                    [gw_r["performance"], gw_r["viral"], gw_r["brand"]],
-                                    title="그룹 구성(100%)", height=260),
-                        use_container_width=True,
-                        key=f"rec_{i}_donut_group"
-                    )
-
-                    if ch:
-                        lab, val = topN_plus_other(ch, n=8)
-                        st.plotly_chart(
-                            donut_chart(lab, val, title="매출 채널 구성(100%)", height=260),
-                            use_container_width=True,
-                            key=f"rec_{i}_donut_channel"
-                        )
-
-                    overall = {}
-                    for m, v in adg_r.get("performance", {}).items():
-                        overall[m] = overall.get(m, 0.0) + gw_r["performance"] * v
-                    for m, v in adg_r.get("viral", {}).items():
-                        overall[m] = overall.get(m, 0.0) + gw_r["viral"] * v
-                    for m, v in adg_r.get("brand", {}).items():
-                        overall[m] = overall.get(m, 0.0) + gw_r["brand"] * v
-                    overall = normalize_shares(overall)
-
-                    if overall:
-                        lab2, val2 = topN_plus_other(overall, n=10)
-                        st.plotly_chart(
-                            donut_chart(lab2, val2, title="미디어 믹스(100%)", height=260),
-                            use_container_width=True,
-                            key=f"rec_{i}_donut_media"
-                        )
-
-                st.markdown("</div>", unsafe_allow_html=True)
-
-            if layout == "세로(1열)":
-                for i, r in enumerate(recs):
-                    render_card(i, r)
-                    st.markdown("")  # spacing
-            else:
-                # 2열 그리드
-                for i in range(0, len(recs), 2):
-                    cL, cR = st.columns(2)
-                    with cL:
-                        render_card(i, recs[i])
-                    if i + 1 < len(recs):
-                        with cR:
-                            render_card(i + 1, recs[i + 1])
-
-# =========================================================
-# TAB 2) Dashboard
-# =========================================================
-with tab_dash:
-    main_mode = st.sidebar.radio("대시보드 선택", ["대행사", "브랜드사"], key="dash_main_mode")
-    sub_mode = st.sidebar.radio("버전 선택", ["내부", "외부"], horizontal=True, key="dash_sub_mode")
-
-    scenario_key = st.sidebar.selectbox("전략 선택", options=scenarios, format_func=lambda k: key_to_label_ui.get(k, k), key="dash_scenario")
-
-    rowdf = df_all[df_all["시나리오명"].astype(str).str.strip() == str(scenario_key).strip()]
-    row = rowdf.iloc[0] if not rowdf.empty else None
-
-    scenario_label = key_to_label_ui.get(scenario_key, scenario_key)
-
-    channel_mix = build_channel_mix_from_row(row)
-    adg = build_media_grouped_from_row(row)
-    gw = adg.get("_group_weights", {"performance": 0, "viral": 0, "brand": 0})
-
-    def get_any_kpi_scalar(row, token, default):
-        if row is None:
-            return default
-        gw_local = gw
-        overall = {}
-        for m, v in adg.get("performance", {}).items():
-            overall[m] = overall.get(m, 0.0) + gw_local["performance"] * v
-        for m, v in adg.get("viral", {}).items():
-            overall[m] = overall.get(m, 0.0) + gw_local["viral"] * v
-        for m, v in adg.get("brand", {}).items():
-            overall[m] = overall.get(m, 0.0) + gw_local["brand"] * v
-        overall = normalize_shares(overall)
-
-        num, den = 0.0, 0.0
-        for media, share in overall.items():
-            k = pick_kpi_for_media_from_row(row, media)
-            if not k:
-                k = fallback_kpi_for_media(media)
-            val = k.get(token)
-            if val is None and token == "CPC":
-                val = derive_cpc(k)
-            if val is None or val <= 0:
-                continue
-            num += float(val) * float(share)
-            den += float(share)
-        return (num / den) if den > 0 else default
-
-    base_cpc = float(get_any_kpi_scalar(row, "CPC", 300.0))
-    base_ctr = float(get_any_kpi_scalar(row, "CTR", 0.012))
-    base_cvr = float(get_any_kpi_scalar(row, "CVR", 0.02))
-
-    st.markdown(f"## {main_mode} · {sub_mode}")
-    st.markdown(f"### {scenario_label}")
-    st.markdown(f"<div class='smallcap'>{scenario_key}</div>", unsafe_allow_html=True)
-
-    st.markdown("#### 믹스 요약(100%)")
-    cA, cB, cC = st.columns(3)
+    # Layout changed: results below inputs (better readability)
+    st.markdown("### 입력")
+    cA, cB, cC, cD = st.columns(4)
     with cA:
-        st.plotly_chart(
-            donut_chart(["퍼포먼스", "바이럴", "브랜드"], [gw["performance"], gw["viral"], gw["brand"]], title="그룹 구성", height=300),
-            use_container_width=True,
-            key="dash_donut_group"
+        operator = st.selectbox(
+            "운영 주체",
+            ["내부브랜드 운영자", "브랜드사 운영자(클라이언트)", "대행사(마케팅만)"],
+            key=mk("op"),
         )
     with cB:
-        if channel_mix:
-            lab, val = topN_plus_other(channel_mix, n=8)
-            st.plotly_chart(
-                donut_chart(lab, val, title="매출 채널", height=300),
-                use_container_width=True,
-                key="dash_donut_channel"
-            )
-        else:
-            st.info("…매출비중 컬럼 없음(컬럼명: *매출비중)")
+        stage = st.selectbox("단계(ST)", ["NEW", "EARLY", "GROW", "MATURE"], key=mk("st"))
     with cC:
-        overall = {}
-        for m, v in adg.get("performance", {}).items():
-            overall[m] = overall.get(m, 0.0) + gw["performance"] * v
-        for m, v in adg.get("viral", {}).items():
-            overall[m] = overall.get(m, 0.0) + gw["viral"] * v
-        for m, v in adg.get("brand", {}).items():
-            overall[m] = overall.get(m, 0.0) + gw["brand"] * v
-        overall = normalize_shares(overall)
-        if overall:
-            lab2, val2 = topN_plus_other(overall, n=10)
-            st.plotly_chart(
-                donut_chart(lab2, val2, title="미디어 믹스", height=300),
-                use_container_width=True,
-                key="dash_donut_media"
-            )
+        # CAT options from parsed keys
+        cats = sorted({parse_scenario_key(s)["CAT"] for s in scenarios if parse_scenario_key(s)})
+        category = st.selectbox("카테고리(CAT)", cats if cats else ["-"], key=mk("cat"))
+    with cD:
+        position = st.selectbox("가격 포지셔닝(POS)", ["L", "M", "P"], key=mk("pos"))
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        sales_focus_channel = st.selectbox("판매 중심", ["자사몰 중심", "온라인 중심", "홈쇼핑 중심", "공구 중심", "B2B 중심"], key=mk("sf"))
+    with c2:
+        target_age = st.selectbox("타겟 연령", ["10대", "20대", "30대", "40대", "50대+"], key=mk("age"))
+    with c3:
+        total_ad_budget_krw = st.number_input("총 광고예산(원)", value=50000000, step=1000000, min_value=1, key=mk("bud"))
+    with c4:
+        no_comp = st.toggle("경쟁키워드 판매의도 없음", value=True, key=mk("nocomp"))
+
+    # Simple scoring (kept lightweight but stable)
+    def simple_score(s_key: str) -> float:
+        p = parse_scenario_key(s_key)
+        if not p:
+            return 0.0
+        score = 0.0
+        if p["ST"] == stage:
+            score += 35
+        if p["CAT"] == category:
+            score += 35
+        if p["POS"] == position:
+            score += 20
+        # age heuristic: younger => tiktok/instagram share bonus
+        mm_row = get_row_by_scenario(media_mix_df, s_key)
+        adg = build_media_budget_shares(mm_row)
+        gw = adg["_group_weights"]
+        viral = gw.get("viral", 0.0)
+        perf = gw.get("performance", 0.0)
+        if target_age in ["10대", "20대"]:
+            score += min(10, (viral + perf) * 10)
         else:
-            st.info("…미디어 믹스 컬럼 없음")
+            score += min(10, perf * 10)
+        return float(score)
+
+    run = st.button("Top3 추천", use_container_width=True, key=mk("runrec"))
+
+    if run:
+        # candidates by hard filter
+        candidates = []
+        for s in scenarios:
+            p = parse_scenario_key(s)
+            if not p:
+                continue
+            if p["ST"] == stage and p["CAT"] == category and p["POS"] == position:
+                candidates.append(s)
+
+        st.markdown("### 결과")
+        st.metric("후보 전략 수", f"{len(candidates):,} 개", key=mk("cand"))
+
+        if not candidates:
+            st.info("조건(ST/CAT/POS)에 맞는 시나리오가 없습니다.")
+        else:
+            ranked = sorted([(s, simple_score(s)) for s in candidates], key=lambda x: x[1], reverse=True)[:3]
+
+            cards = st.columns(3)
+            for i, (s, sc) in enumerate(ranked):
+                disp = scenario_display_map.get(s, s)
+                mm_row = get_row_by_scenario(media_mix_df, s)
+                adg = build_media_budget_shares(mm_row)
+                gw = adg["_group_weights"]
+                with cards[i]:
+                    st.markdown(f"<div class='card'>", unsafe_allow_html=True)
+                    st.markdown(f"**#{i+1} {disp}**")
+                    st.caption(s)
+                    st.metric("Score", f"{sc:.1f}", key=mk("score"))
+                    st.metric("퍼포먼스 비중", f"{gw.get('performance',0)*100:.0f}%", key=mk("p"))
+                    st.metric("바이럴 비중", f"{gw.get('viral',0)*100:.0f}%", key=mk("v"))
+                    st.metric("브랜드 비중", f"{gw.get('brand',0)*100:.0f}%", key=mk("b"))
+                    st.markdown("</div>", unsafe_allow_html=True)
+
+# ============================================================
+# TAB 2) Dashboard: Agency / Brand (each has internal/external)
+# ============================================================
+with tab_dash:
+    st.sidebar.markdown("---")
+    main_mode = st.sidebar.radio("모드", ["대행", "브랜드"], key=mk("mainmode"))
+    sub_mode = st.sidebar.radio("버전", ["내부용", "외부용"], key=mk("submode"))
+
+    # show scenario with display names
+    display_names = [scenario_display_map[s] for s in scenarios]
+    display_selected = st.sidebar.selectbox("전략 선택(노출용)", display_names, key=mk("scsel"))
+    scenario_key = display_to_key.get(display_selected, scenarios[0])
+
+    mm_row = get_row_by_scenario(media_mix_df, scenario_key)
+    ch_row = get_row_by_scenario(channel_mix_df, scenario_key)
+    kpi_row = get_row_by_scenario(kpi_df, scenario_key)
+
+    # KPI defaults
+    base_cpc = kpi_value(kpi_row, ["목표 평균 CPC", "CPC"], 300.0)
+    base_cvr = kpi_value(kpi_row, ["목표 평균 CVR", "CVR"], 0.02)
+    if base_cvr > 1:
+        base_cvr = base_cvr / 100.0
+
+    # Build grouped media shares
+    adg = build_media_budget_shares(mm_row)
+    gw = adg["_group_weights"]
+
+    # Top header
+    st.markdown(f"## {main_mode} · {sub_mode}")
+    st.markdown(f'<div class="smallcap">선택 전략: <b>{display_selected}</b></div>', unsafe_allow_html=True)
+
+    # ============================================================
+    # Shared inputs: budget + ROAS target (for ROAS chart normalization)
+    # ============================================================
+    st.markdown("### 기본 입력")
+    b1, b2, b3, b4 = st.columns(4)
+    with b1:
+        total_budget = st.number_input("총 예산(원)", value=60000000, step=1000000, key=mk("totbud"))
+    with b2:
+        target_roas = st.number_input("타겟 ROAS(예: 3.0)", value=3.0, step=0.1, key=mk("troas"))
+    with b3:
+        cpc = st.number_input("CPC(원)", value=float(base_cpc), step=10.0, key=mk("cpc"))
+    with b4:
+        cvr = st.number_input("CVR(%)", value=float(base_cvr * 100.0), step=0.1, key=mk("cvr")) / 100.0
+
+    # ============================================================
+    # 100% donuts: channel mix, group mix
+    # ============================================================
+    cL, cR = st.columns([1, 1])
+    with cL:
+        ch_shares = build_channel_mix_shares(ch_row)
+        if ch_shares:
+            fig = donut_chart(list(ch_shares.keys()), list(ch_shares.values()), title="매출 채널 구성(100%)", height=320)
+            st.plotly_chart(fig, use_container_width=True, key=mk("donut_ch"))
+        else:
+            st.info("채널 믹스 데이터가 비어있습니다.")
+    with cR:
+        fig = donut_chart(["퍼포먼스", "바이럴", "브랜드"], [gw.get("performance", 0), gw.get("viral", 0), gw.get("brand", 0)], title="미디어 그룹 구성(100%)", height=320)
+        st.plotly_chart(fig, use_container_width=True, key=mk("donut_group"))
 
     st.divider()
 
-    # =====================================================
-    # Agency
-    # =====================================================
-    if main_mode == "대행사":
-        if sub_mode == "외부":
-            st.markdown("#### 외부(클라이언트 제안용) — 광고비/효율/추천 믹스 중심")
-            left, right = st.columns([1, 1])
-            with left:
-                budget = st.number_input("예산(원)", value=50_000_000, step=1_000_000, key="ag_ext_budget")
-                include_viral = st.toggle("바이럴 KPI 없더라도 전환 포함(권장X)", value=False, key="ag_ext_include_viral")
+    # ============================================================
+    # Agency mode
+    # ============================================================
+    if main_mode == "대행":
+        # Split budgets by group weights
+        perf_budget = total_budget * gw.get("performance", 0.0)
+        viral_budget = total_budget * gw.get("viral", 0.0)
+        brand_budget = total_budget * gw.get("brand", 0.0)
 
-                cpc = st.number_input("CPC (원)", value=float(base_cpc), step=10.0, key="ag_ext_cpc")
-                ctr = st.number_input("CTR (%)", value=float(base_ctr * 100.0), step=0.1, key="ag_ext_ctr") / 100.0
-                cvr = st.number_input("CVR (%)", value=float(base_cvr * 100.0), step=0.1, key="ag_ext_cvr") / 100.0
+        st.markdown("### 미디어 믹스 (퍼포먼스 / 바이럴)")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("퍼포먼스 예산", fmt_won(perf_budget), key=mk("pb"))
+        m2.metric("바이럴 예산", fmt_won(viral_budget), key=mk("vb"))
+        m3.metric("브랜드 예산", fmt_won(brand_budget), key=mk("bb"))
 
-                funnel_profile = st.radio("가정", ["보수적", "평범", "긍정적"], horizontal=True, key="ag_ext_funnel_profile")
+        # --- Performance table
+        perf_df = build_performance_allocation(perf_budget, adg, rounding_unit=100)
 
-            with right:
-                est = calc_expected_cac(total_budget=float(budget), adg=adg, kpi_row=row, include_viral_if_kpi_missing=bool(include_viral))
-                m1, m2, m3 = st.columns(3)
-                m1.metric("예상 전환", f"{est['expected_conversions']:,.1f}")
-                m2.metric("예상 CAC", fmt_won(est["expected_CAC"]))
-                m3.metric("예상 클릭", f"{est['expected_clicks']:,.0f}")
+        # Agency internal: allow fee/payback inputs + labor + PL
+        if sub_mode == "내부용":
+            st.markdown("#### 퍼포먼스 (내부용: 수수료/페이백 반영)")
+            p1, p2, p3 = st.columns(3)
+            with p1:
+                fee_rate = st.number_input("대행 수수료율(%)", value=10.0, step=0.5, key=mk("feer")) / 100.0
+            with p2:
+                payback_rate = st.number_input("페이백률(%)", value=0.0, step=0.5, key=mk("pbr")) / 100.0
+            with p3:
+                rounding_unit = st.selectbox("예산 반올림 단위", [100, 1000, 10000], index=0, key=mk("roundp"))
 
-                if funnel_profile == "보수적":
-                    m_ctr, m_cvr, m_cpc = 0.85, 0.85, 1.10
-                elif funnel_profile == "긍정적":
-                    m_ctr, m_cvr, m_cpc = 1.15, 1.15, 0.90
-                else:
-                    m_ctr, m_cvr, m_cpc = 1.00, 1.00, 1.00
+            # rebuild with rounding
+            perf_df = build_performance_allocation(perf_budget, adg, rounding_unit=int(rounding_unit))
+            perf_bill = apply_agency_billing(perf_df, fee_rate=fee_rate, payback_rate=payback_rate)
 
-                ctr2 = max(ctr * m_ctr, 1e-6)
-                cvr2 = max(cvr * m_cvr, 1e-6)
-                cpc2 = max(cpc * m_cpc, 1e-6)
+            if not perf_bill.empty:
+                show = perf_bill.copy()
+                for col in ["예산(집행)", "대행수수료(예상)", "청구예상비용", "페이백예상액", "청구예상(페이백차감)"]:
+                    if col in show.columns:
+                        show[col] = show[col].map(lambda x: f"{x:,.0f}")
+                show["대행수수료율"] = (show["대행수수료율"] * 100).map(lambda x: f"{x:.1f}%")
+                show["페이백률"] = (show["페이백률"] * 100).map(lambda x: f"{x:.1f}%")
+                st.dataframe(show, use_container_width=True, hide_index=True, key=mk("perf_tbl_in"))
 
-                clicks = float(budget) / cpc2
-                impressions = clicks / ctr2
-                conversions = clicks * cvr2
+                # performance 100% donut
+                fig = donut_chart(perf_bill["매체"].tolist(), perf_bill["예산(집행)"].tolist(), title="퍼포먼스 채널 예산(100%)", height=300)
+                st.plotly_chart(fig, use_container_width=True, key=mk("donut_perf"))
 
-                funnel_df = pd.DataFrame({"단계": ["노출(Impressions)", "유입(Clicks)", "전환(Conversions)"], "값": [impressions, clicks, conversions]})
-                fig_funnel = go.Figure(go.Funnel(y=funnel_df["단계"], x=funnel_df["값"], textinfo="value+percent initial"))
-                fig_funnel.update_layout(height=360, margin=dict(t=10, b=10))
-                st.plotly_chart(fig_funnel, use_container_width=True, key="ag_ext_funnel")
+            # --- Viral pricing editor
+            st.markdown("#### 바이럴 (내부용: 실집행 입력 + 마진)")
+            st.caption("규칙: 예산을 지면별 비율로 배분 → 건수=반올림(정수) → 총비용은 건수×단가 (합계가 예산과 달라도 OK)")
 
-        else:
-            st.markdown("#### 내부(제안 제작용) — 광고비/마진/인건비 입력 포함")
-            left, right = st.columns([1.05, 1])
+            if "viral_price_df" not in st.session_state:
+                st.session_state["viral_price_df"] = pd.DataFrame(DEFAULT_VIRAL_PRICE)
 
-            with left:
-                calc_mode = st.radio("계산 방식", ["광고비 입력 → 매출 산출", "매출 입력 → 필요 광고비 산출"], horizontal=True, key="ag_int_calc_mode")
-
-                aov = st.number_input("객단가(판매가) (원)", value=50_000, step=1_000, key="ag_int_aov")
-                cost_rate = st.number_input("원가율 (%)", value=30.0, key="ag_int_cost_rate") / 100.0
-                logistics_per_order = st.number_input("물류비(건당) (원)", value=3_000, step=500, key="ag_int_logi")
-                fixed_cost = st.number_input("인건비/고정비 (원)", value=6_000_000, step=500_000, key="ag_int_fixed")
-
-                include_viral = st.toggle("바이럴 KPI 없더라도 전환 포함(권장X)", value=False, key="ag_int_include_viral")
-                est_unit = calc_expected_cac(total_budget=1_000_000.0, adg=adg, kpi_row=row, include_viral_if_kpi_missing=bool(include_viral))
-                expected_cac = est_unit["expected_CAC"]
-                use_mix_cac = st.toggle("시나리오 믹스 기반 CAC 사용(추천)", value=True, key="ag_int_use_mix_cac")
-
-                cpc = st.number_input("CPC (원)", value=float(base_cpc), step=10.0, key="ag_int_cpc")
-                cvr = st.number_input("CVR (%)", value=float(base_cvr * 100.0), step=0.1, key="ag_int_cvr") / 100.0
-
-                if calc_mode.startswith("광고비 입력"):
-                    marketing_budget = st.number_input("총 광고비 (원)", value=50_000_000, step=1_000_000, key="ag_int_budget")
-                    target_revenue = None
-                else:
-                    target_revenue = st.number_input("목표 매출 (원)", value=300_000_000, step=10_000_000, key="ag_int_rev")
-                    marketing_budget = None
-
-            def simulate_pl(ad_spend=None, revenue=None):
-                if use_mix_cac and expected_cac and expected_cac > 0:
-                    cac = float(expected_cac)
-                    if revenue is not None:
-                        orders = revenue / aov if aov > 0 else 0
-                        ad_spend = orders * cac
-                    else:
-                        orders = ad_spend / cac if cac > 0 else 0
-                        revenue = orders * aov
-                    clicks = orders / cvr if cvr > 0 else 0
-                else:
-                    if revenue is not None:
-                        orders = revenue / aov if aov > 0 else 0
-                        clicks = orders / cvr if cvr > 0 else 0
-                        ad_spend = clicks * cpc
-                    else:
-                        clicks = ad_spend / cpc if cpc > 0 else 0
-                        orders = clicks * cvr
-                        revenue = orders * aov
-
-                cogs = revenue * cost_rate
-                logistics = orders * logistics_per_order
-                profit = revenue - (ad_spend + cogs + logistics + fixed_cost)
-                contrib_margin = (revenue - ad_spend - logistics - cogs) / revenue * 100 if revenue > 0 else 0
-                roas = revenue / ad_spend if ad_spend and ad_spend > 0 else 0.0
-
-                return dict(
-                    revenue=float(revenue),
-                    ad=float(ad_spend),
-                    orders=float(orders),
-                    clicks=float(clicks),
-                    cogs=float(cogs),
-                    logistics=float(logistics),
-                    fixed=float(fixed_cost),
-                    profit=float(profit),
-                    contrib=float(contrib_margin),
-                    roas=float(roas),
-                )
-
-            res = simulate_pl(ad_spend=marketing_budget, revenue=target_revenue)
-
-            with right:
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("예상 매출", fmt_won(res["revenue"]))
-                m2.metric("예상 광고비", fmt_won(res["ad"]))
-                m3.metric("영업이익", fmt_won(res["profit"]))
-                m4.metric("공헌이익률", f"{res['contrib']:.1f}%")
-
-                cost_df = pd.DataFrame({"항목": ["광고비", "원가", "물류비", "인건비/고정비", "영업이익"], "금액": [res["ad"], res["cogs"], res["logistics"], res["fixed"], res["profit"]]})
-                fig_cost = px.bar(cost_df, x="항목", y="금액", text="금액")
-                fig_cost.update_traces(texttemplate="%{text:,.0f}", textposition="outside")
-                fig_cost.update_layout(height=340, yaxis_title=None, xaxis_title=None, margin=dict(t=10, b=10))
-                st.plotly_chart(fig_cost, use_container_width=True, key="ag_int_cost_bar")
-
-            st.divider()
-            st.markdown("#### 전략 비교 (내부)")
-            default_compare = scenarios[:3] if len(scenarios) >= 3 else scenarios
-            compare_keys = st.multiselect("비교할 전략", options=scenarios, default=default_compare, format_func=lambda k: key_to_label_ui.get(k, k), key="ag_int_compare")
-            view_mode = st.radio("표시", ["전체(매출+광고비+ROAS)", "매출/광고비만", "ROAS만"], horizontal=True, key="ag_int_viewmode")
-
-            rows = []
-            for k in compare_keys:
-                rrowdf = df_all[df_all["시나리오명"].astype(str).str.strip() == str(k).strip()]
-                if rrowdf.empty:
-                    continue
-                rrow = rrowdf.iloc[0]
-                adg_k = build_media_grouped_from_row(rrow)
-                est_k = calc_expected_cac(total_budget=1_000_000.0, adg=adg_k, kpi_row=rrow, include_viral_if_kpi_missing=bool(include_viral))
-                cac_k = est_k["expected_CAC"]
-
-                if use_mix_cac and cac_k and cac_k > 0:
-                    if calc_mode.startswith("광고비 입력"):
-                        ad_spend_k = float(res["ad"])
-                        orders_k = ad_spend_k / float(cac_k)
-                        revenue_k = orders_k * aov
-                    else:
-                        revenue_k = float(res["revenue"])
-                        orders_k = revenue_k / aov if aov > 0 else 0
-                        ad_spend_k = orders_k * float(cac_k)
-                    roas_k = revenue_k / ad_spend_k if ad_spend_k > 0 else 0
-                else:
-                    revenue_k, ad_spend_k, roas_k = res["revenue"], res["ad"], res["roas"]
-
-                rows.append({"전략": key_to_label_ui.get(k, k), "예상매출": revenue_k, "예상광고비": ad_spend_k, "ROAS": roas_k})
-
-            cmp_df = pd.DataFrame(rows)
-            if cmp_df.empty:
-                st.info("비교할 전략을 선택하세요.")
-            else:
-                fig = make_subplots(specs=[[{"secondary_y": True}]])
-                if view_mode in ("전체(매출+광고비+ROAS)", "매출/광고비만"):
-                    fig.add_trace(go.Bar(x=cmp_df["전략"], y=cmp_df["예상매출"], name="예상매출"), secondary_y=False)
-                    fig.add_trace(go.Bar(x=cmp_df["전략"], y=cmp_df["예상광고비"], name="예상광고비"), secondary_y=False)
-                if view_mode in ("전체(매출+광고비+ROAS)", "ROAS만"):
-                    fig.add_trace(go.Scatter(x=cmp_df["전략"], y=cmp_df["ROAS"], name="ROAS", mode="lines+markers"), secondary_y=True)
-                fig.update_layout(height=420, barmode="group", margin=dict(t=10, b=10, l=10, r=10), legend=dict(orientation="h", y=1.02, x=0))
-                st.plotly_chart(fig, use_container_width=True, key="ag_int_compare_combo")
-
-    # =====================================================
-    # Brand
-    # =====================================================
-    else:
-        st.markdown("#### 브랜드사 — 월별 매출/광고비(추정) 포함")
-
-        if sub_mode == "외부":
-            c1, c2 = st.columns(2)
-            with c1:
-                total_budget = st.number_input("총 가용 예산(원)", value=200_000_000, step=10_000_000, key="br_ext_total_budget")
-                target_units = st.number_input("목표 물량(Unit)", value=10_000, step=100, key="br_ext_units")
-            with c2:
-                landed_cost = st.number_input("개당 수입원가(원)", value=12_000, step=500, key="br_ext_landed")
-                price_mult = st.slider("예상 판매가 배수", 1.2, 4.0, 2.0, 0.1, key="br_ext_mult")
-            selling_price = landed_cost * price_mult
-        else:
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                total_budget = st.number_input("총 가용 예산(원)", value=200_000_000, step=10_000_000, key="br_int_total_budget")
-            with c2:
-                target_units = st.number_input("목표 물량(Unit)", value=10_000, step=100, key="br_int_units")
-            with c3:
-                landed_cost = st.number_input("개당 수입원가(원)", value=12_000, step=500, key="br_int_landed")
-
-            with st.expander("내부 설정(비공개 입력)", expanded=False):
-                _fixed_cost = st.number_input("인건비/고정비 (원) (입력만)", value=6_000_000, step=500_000, key="br_int_fixed")
-                price_mult = st.slider("예상 판매가 배수", 1.2, 4.0, 2.0, 0.1, key="br_int_mult")
-            selling_price = landed_cost * price_mult
-
-        import_cost = target_units * landed_cost
-        affordable_units = target_units
-        if import_cost > total_budget and landed_cost > 0:
-            affordable_units = int(total_budget // landed_cost)
-            import_cost = affordable_units * landed_cost
-        marketing_budget = max(total_budget - import_cost, 0.0)
-
-        cpc = float(base_cpc)
-        cvr = float(base_cvr)
-
-        clicks = marketing_budget / cpc if cpc > 0 else 0
-        orders = clicks * cvr
-        units_sold = min(float(orders), float(affordable_units))
-        sell_through = (units_sold / target_units * 100) if target_units > 0 else 0
-
-        unit_margin = max(selling_price - landed_cost, 0)
-        net_profit = units_sold * unit_margin - marketing_budget
-
-        st.markdown("### KPI 요약")
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("예상 판매량", f"{units_sold:,.0f} 개")
-        if sell_through >= 100:
-            badge = "badge-green"
-        elif sell_through >= 80:
-            badge = "badge-yellow"
-        else:
-            badge = "badge-red"
-        k2.markdown(f"완판 예상율<br><span class='badge {badge}'>{sell_through:.1f}%</span>", unsafe_allow_html=True)
-        k3.metric("수입비용", fmt_won(import_cost))
-        k4.metric("마케팅 예산", fmt_won(marketing_budget))
-
-        st.divider()
-        st.markdown("### 예산 소진(도넛)")
-        donut_labels = ["제품 수입비용", "마케팅 집행비"]
-        donut_vals = [import_cost, marketing_budget]
-        if net_profit >= 0:
-            donut_labels.append("예상 수익")
-            donut_vals.append(net_profit)
-        else:
-            donut_labels.append("예상 손실")
-            donut_vals.append(abs(net_profit))
-        fig_budget = px.pie(pd.DataFrame({"구성": donut_labels, "금액": donut_vals}), values="금액", names="구성", hole=0.52)
-        fig_budget.update_layout(height=340, margin=dict(t=10, b=10))
-        st.plotly_chart(fig_budget, use_container_width=True, key=f"br_budget_donut_{sub_mode}")
-
-        st.divider()
-        st.markdown("### 유통 채널(상위)")
-        if channel_mix:
-            lab, val = topN_plus_other(channel_mix, n=8)
-            st.plotly_chart(
-                donut_chart(lab, val, title="매출 채널 구성(100%)", height=360),
+            viral_price_df = st.data_editor(
+                st.session_state["viral_price_df"],
                 use_container_width=True,
-                key=f"br_channel_donut_{sub_mode}"
+                num_rows="dynamic",
+                key=mk("viral_price_editor"),
             )
+            st.session_state["viral_price_df"] = viral_price_df
+
+            v_round = st.selectbox("바이럴 예산 반올림 단위", [100, 1000, 10000], index=0, key=mk("vround"))
+
+            viral_alloc = build_viral_allocation(viral_budget, mm_row, viral_price_df, rounding_unit=int(v_round))
+
+            # internal: add actual spend input
+            if "viral_actual" not in st.session_state:
+                st.session_state["viral_actual"] = {}
+
+            viral_alloc["실집행비용(입력)"] = 0.0
+            for i in range(len(viral_alloc)):
+                key = f"{viral_alloc.loc[i,'지면']}"
+                viral_alloc.loc[i, "실집행비용(입력)"] = float(st.session_state["viral_actual"].get(key, 0.0))
+
+            # render editor for actual spend only
+            editable = viral_alloc[["구분", "매체", "지면", "건당비용", "진행 건수", "계획비(청구비)", "총비용(계산)", "실집행비용(입력)"]].copy()
+            editable["실집행비용(입력)"] = editable["실집행비용(입력)"].astype(float)
+
+            edited = st.data_editor(
+                editable,
+                use_container_width=True,
+                hide_index=True,
+                key=mk("viral_actual_editor"),
+                column_config={
+                    "실집행비용(입력)": st.column_config.NumberColumn(format="%,.0f", step=10000),
+                    "계획비(청구비)": st.column_config.NumberColumn(format="%,.0f"),
+                    "총비용(계산)": st.column_config.NumberColumn(format="%,.0f"),
+                    "건당비용": st.column_config.NumberColumn(format="%,.0f"),
+                },
+                disabled=["구분", "매체", "지면", "건당비용", "진행 건수", "계획비(청구비)", "총비용(계산)"],
+            )
+
+            # save actuals back
+            for _, r in edited.iterrows():
+                st.session_state["viral_actual"][str(r["지면"])] = float(r["실집행비용(입력)"] or 0.0)
+
+            # margin
+            edited["마진(계획-실집행)"] = edited["계획비(청구비)"].astype(float) - edited["실집행비용(입력)"].astype(float)
+            st.markdown("#### 바이럴 마진 요약")
+            s1, s2, s3 = st.columns(3)
+            s1.metric("바이럴 계획비 합계", fmt_won(edited["계획비(청구비)"].sum()), key=mk("vsum1"))
+            s2.metric("바이럴 실집행 합계", fmt_won(edited["실집행비용(입력)"].sum()), key=mk("vsum2"))
+            s3.metric("바이럴 마진 합계", fmt_won(edited["마진(계획-실집행)"].sum()), key=mk("vsum3"))
+
+            # viral donut (100%) by surface planned
+            fig = donut_chart(edited["지면"].tolist(), edited["계획비(청구비)"].tolist(), title="바이럴 지면 계획비(100%)", height=320)
+            st.plotly_chart(fig, use_container_width=True, key=mk("donut_viral_surface"))
+
+            # --- Agency internal should include labor (requested)
+            st.divider()
+            st.markdown("### 내부 손익(간단)")
+            colA, colB, colC, colD = st.columns(4)
+            with colA:
+                aov = st.number_input("객단가(AOV, 원)", value=50000, step=1000, key=mk("aov_a"))
+            with colB:
+                cost_rate = st.number_input("원가율(%)", value=30.0, step=0.5, key=mk("cr_a")) / 100.0
+            with colC:
+                logistics = st.number_input("물류비/건(원)", value=3000, step=500, key=mk("lg_a"))
+            with colD:
+                calc_mode = st.selectbox("계산 방식", ["광고비 입력 → 매출 산출", "매출 입력 → 필요 광고비 산출"], key=mk("cm_a"))
+
+            hc1, hc2, hc3 = st.columns(3)
+            with hc1:
+                headcount = st.number_input("운영 인력 수", value=2, step=1, min_value=0, key=mk("hc_a"))
+            with hc2:
+                cost_per_head = st.number_input("인당 고정비(원)", value=3000000, step=100000, min_value=0, key=mk("cph_a"))
+            with hc3:
+                if calc_mode == "광고비 입력 → 매출 산출":
+                    ad_input = st.number_input("광고비(원)", value=int(total_budget), step=1000000, key=mk("adin_a"))
+                    rev_input = None
+                else:
+                    rev_input = st.number_input("목표매출(원)", value=300000000, step=10000000, key=mk("rvin_a"))
+                    ad_input = None
+
+            pl = simulate_pl(
+                mode=calc_mode,
+                aov=aov,
+                cpc=cpc,
+                cvr=cvr,
+                cost_rate=cost_rate,
+                logistics_per_order=logistics,
+                headcount=int(headcount),
+                cost_per_head=cost_per_head,
+                ad_spend=ad_input,
+                revenue=rev_input,
+            )
+
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("예상 매출", fmt_won(pl["revenue"]), key=mk("pl1"))
+            k2.metric("예상 광고비", fmt_won(pl["ad_spend"]), key=mk("pl2"))
+            k3.metric("영업이익", fmt_won(pl["profit"]), key=mk("pl3"))
+            k4.metric("공헌이익률", f"{pl['contrib_margin']:.1f}%", key=mk("pl4"))
+
+        # Agency external: cleaner proposal view
         else:
-            st.info("…매출비중 컬럼이 없어 채널 차트를 그릴 수 없습니다.")
+            st.markdown("#### 퍼포먼스 (외부용: 예산만)")
+            if not perf_df.empty:
+                show = perf_df.copy()
+                show["예산(집행)"] = show["예산(집행)"].map(lambda x: f"{x:,.0f}")
+                st.dataframe(show, use_container_width=True, hide_index=True, key=mk("perf_tbl_out"))
+
+                fig = donut_chart(perf_df["매체"].tolist(), perf_df["예산(집행)"].tolist(), title="퍼포먼스 채널 예산(100%)", height=300)
+                st.plotly_chart(fig, use_container_width=True, key=mk("donut_perf_out"))
+            else:
+                st.info("퍼포먼스 믹스 데이터가 비어있습니다.")
+
+            st.markdown("#### 바이럴 (외부용: 건수 산출)")
+            if "viral_price_df" not in st.session_state:
+                st.session_state["viral_price_df"] = pd.DataFrame(DEFAULT_VIRAL_PRICE)
+            viral_price_df = st.session_state["viral_price_df"]
+
+            v_round = st.selectbox("바이럴 예산 반올림 단위", [100, 1000, 10000], index=0, key=mk("vround_out"))
+            viral_alloc = build_viral_allocation(viral_budget, mm_row, viral_price_df, rounding_unit=int(v_round))
+
+            # display table (no actual spend)
+            disp = viral_alloc[["구분", "매체", "지면", "건당비용", "진행 건수", "계획비(청구비)", "총비용(계산)"]].copy()
+            for col in ["건당비용", "계획비(청구비)", "총비용(계산)"]:
+                disp[col] = disp[col].map(lambda x: f"{float(x):,.0f}")
+            st.dataframe(disp, use_container_width=True, hide_index=True, key=mk("viral_tbl_out"))
+
+            fig = donut_chart(viral_alloc["지면"].tolist(), viral_alloc["계획비(청구비)"].tolist(), title="바이럴 지면 계획비(100%)", height=320)
+            st.plotly_chart(fig, use_container_width=True, key=mk("donut_viral_out"))
+
+    # ============================================================
+    # Brand mode
+    # ============================================================
+    else:
+        st.markdown("### 브랜드 대시보드")
+        st.caption("브랜드사 외부용은 과도한 약속/디테일을 피하고, 보기 좋은 수준으로 제시합니다.")
+
+        # Brand also wants monthly revenue/adspend projection
+        st.markdown("#### 월별 매출/광고비 예측")
+
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            months = st.number_input("예측 개월수", value=6, step=1, min_value=1, max_value=24, key=mk("months"))
+        with col2:
+            base_revenue = st.number_input("1개월차 예상매출(원)", value=300000000, step=10000000, key=mk("brev"))
+        with col3:
+            monthly_growth = st.number_input("월 성장률(%)", value=5.0, step=0.5, key=mk("mgr")) / 100.0
+        with col4:
+            base_ad = st.number_input("1개월차 광고비(원)", value=int(total_budget), step=1000000, key=mk("bad"))
+
+        # brand internal: include labor inputs (but do not show on dashboard if external)
+        headcount = 0
+        cost_per_head = 0
+        if sub_mode == "내부용":
+            st.markdown("#### (내부용만) 인건비 입력")
+            h1, h2 = st.columns(2)
+            with h1:
+                headcount = st.number_input("운영 인력 수", value=2, step=1, min_value=0, key=mk("hc_b"))
+            with h2:
+                cost_per_head = st.number_input("인당 고정비(원)", value=3000000, step=100000, min_value=0, key=mk("cph_b"))
+
+        # build monthly series
+        rows = []
+        rev = float(base_revenue)
+        adsp = float(base_ad)
+        for m in range(int(months)):
+            month_name = f"{m+1}개월"
+            rows.append({"월": month_name, "예상매출": rev, "예상광고비": adsp, "ROAS": (rev / adsp) if adsp > 0 else 0.0})
+            rev *= (1.0 + monthly_growth)
+
+        df_month = pd.DataFrame(rows)
+        df_month["ROAS달성률(%)"] = (df_month["ROAS"] / max(float(target_roas), 1e-9)) * 100.0
+        df_month["ROAS달성률(%)"] = df_month["ROAS달성률(%)"].clip(0, 100)
+
+        # Chart: bars for revenue/ad, line for ROAS% (0~100 secondary axis)
+        fig = go.Figure()
+        fig.add_trace(go.Bar(name="예상매출", x=df_month["월"], y=df_month["예상매출"], yaxis="y"))
+        fig.add_trace(go.Bar(name="예상광고비", x=df_month["월"], y=df_month["예상광고비"], yaxis="y"))
+        fig.add_trace(go.Scatter(name="ROAS 달성률(%)", x=df_month["월"], y=df_month["ROAS달성률(%)"], mode="lines+markers", yaxis="y2"))
+
+        fig.update_layout(
+            height=430,
+            margin=dict(t=40, l=10, r=10, b=10),
+            barmode="group",
+            yaxis=dict(title=None),
+            yaxis2=dict(
+                title="ROAS 달성률(0~100%)",
+                overlaying="y",
+                side="right",
+                range=[0, 100],
+                showgrid=False,
+            ),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        st.plotly_chart(fig, use_container_width=True, key=mk("brand_month_chart"))
+
+        # summary metrics (external: keep simple)
+        sum_rev = df_month["예상매출"].sum()
+        sum_ad = df_month["예상광고비"].sum()
+        avg_roas = (sum_rev / sum_ad) if sum_ad > 0 else 0
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("기간 합계 매출", fmt_won(sum_rev), key=mk("bm1"))
+        m2.metric("기간 합계 광고비", fmt_won(sum_ad), key=mk("bm2"))
+        m3.metric("평균 ROAS", f"{avg_roas:.2f}", key=mk("bm3"))
+        m4.metric("ROAS 달성률(평균)", f"{min(100, (avg_roas/max(target_roas,1e-9))*100):.0f}%", key=mk("bm4"))
+
+        if sub_mode == "내부용":
+            # very light internal profit view (not too detailed)
+            st.markdown("#### (내부용) 간단 손익 참고")
+            # Use P&L on first month as snapshot
+            aov = st.number_input("객단가(AOV, 원)", value=50000, step=1000, key=mk("aov_b"))
+            cost_rate = st.number_input("원가율(%)", value=30.0, step=0.5, key=mk("cr_b")) / 100.0
+            logistics = st.number_input("물류비/건(원)", value=3000, step=500, key=mk("lg_b"))
+
+            pl = simulate_pl(
+                mode="광고비 입력 → 매출 산출",
+                aov=aov,
+                cpc=cpc,
+                cvr=cvr,
+                cost_rate=cost_rate,
+                logistics_per_order=logistics,
+                headcount=int(headcount),
+                cost_per_head=float(cost_per_head),
+                ad_spend=float(base_ad),
+                revenue=None,
+            )
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("1개월차 예상매출", fmt_won(pl["revenue"]), key=mk("bpl1"))
+            k2.metric("1개월차 광고비", fmt_won(pl["ad_spend"]), key=mk("bpl2"))
+            k3.metric("1개월차 영업이익", fmt_won(pl["profit"]), key=mk("bpl3"))
+            k4.metric("공헌이익률", f"{pl['contrib_margin']:.1f}%", key=mk("bpl4"))
 
         st.divider()
-        st.markdown("### 월별 매출/광고비(추정)")
-        profile = st.radio("월별 분배 가정", ["보수적", "기본", "공격"], horizontal=True, key=f"br_month_profile_{sub_mode}")
 
-        if profile == "보수적":
-            w = np.array([0.04, 0.05, 0.06, 0.07, 0.08, 0.10, 0.10, 0.10, 0.09, 0.08, 0.07, 0.06])
-        elif profile == "공격":
-            w = np.array([0.10, 0.10, 0.10, 0.09, 0.08, 0.08, 0.07, 0.07, 0.07, 0.06, 0.05, 0.03])
+        # Scenario comparison for brand (requested earlier)
+        st.markdown("### 전략 비교 (시나리오)")
+        compare_display = st.multiselect(
+            "비교할 전략 선택(노출용)",
+            options=display_names,
+            default=display_names[:3],
+            key=mk("cmp_pick"),
+        )
+        compare_keys = [display_to_key.get(d, None) for d in compare_display]
+        compare_keys = [k for k in compare_keys if k is not None]
+
+        view = st.radio(
+            "보기",
+            ["매출", "광고비", "영업이익", "공헌이익률", "ROAS", "전체(3개 동시)"],
+            horizontal=True,
+            key=mk("cmp_view"),
+        )
+
+        # For comparison, we use same PL assumptions for all scenarios (simple & stable)
+        # external: do not expose detailed PL inputs; internal: still use same so chart stays consistent
+        # Use ad budget = total_budget, and compute revenue via CPC/CVR/AOV
+        aov_cmp = 50000.0
+        cost_rate_cmp = 0.30
+        logistics_cmp = 3000.0
+        headcount_cmp = int(headcount) if sub_mode == "내부용" else 0
+        cost_per_head_cmp = float(cost_per_head) if sub_mode == "내부용" else 0.0
+
+        rows = []
+        for sk in compare_keys:
+            disp = scenario_display_map.get(sk, sk)
+            # Here: apply group weights? To keep stable, ad spend = total_budget for all
+            pl = simulate_pl(
+                mode="광고비 입력 → 매출 산출",
+                aov=aov_cmp,
+                cpc=cpc,
+                cvr=cvr,
+                cost_rate=cost_rate_cmp,
+                logistics_per_order=logistics_cmp,
+                headcount=headcount_cmp,
+                cost_per_head=cost_per_head_cmp,
+                ad_spend=float(total_budget),
+                revenue=None,
+            )
+            rows.append(
+                {
+                    "시나리오": disp,
+                    "매출": pl["revenue"],
+                    "광고비": pl["ad_spend"],
+                    "영업이익": pl["profit"],
+                    "공헌이익률": pl["contrib_margin"],
+                    "ROAS": pl["roas"],
+                }
+            )
+
+        df_cmp = pd.DataFrame(rows)
+        if df_cmp.empty:
+            st.info("비교할 전략을 선택하세요.")
         else:
-            w = np.array([0.06, 0.07, 0.08, 0.08, 0.09, 0.09, 0.09, 0.09, 0.08, 0.07, 0.06, 0.04])
-        w = w / w.sum()
+            # rename columns for chart function
+            df_cmp = df_cmp.rename(columns={"매출": "매출", "광고비": "광고비", "영업이익": "영업이익", "공헌이익률": "공헌이익률", "ROAS": "ROAS"})
+            # chart
+            fig = scenario_compare_chart(df_cmp, view=view, target_roas=float(target_roas), title="전략 비교")
+            st.plotly_chart(fig, use_container_width=True, key=mk("cmp_chart"))
 
-        total_revenue = units_sold * selling_price
-        monthly_revenue = total_revenue * w
-        monthly_ad = marketing_budget * w
+            # table (no clickable behavior)
+            show = df_cmp.copy()
+            show["매출"] = show["매출"].map(lambda x: f"{x:,.0f}")
+            show["광고비"] = show["광고비"].map(lambda x: f"{x:,.0f}")
+            show["영업이익"] = show["영업이익"].map(lambda x: f"{x:,.0f}")
+            show["공헌이익률"] = show["공헌이익률"].map(lambda x: f"{x:.1f}%")
+            show["ROAS"] = show["ROAS"].map(lambda x: f"{x:.2f}")
+            st.dataframe(show, use_container_width=True, hide_index=True, key=mk("cmp_tbl"))
 
-        month_df = pd.DataFrame({
-            "월": [f"{i}월" for i in range(1, 13)],
-            "예상 매출": monthly_revenue,
-            "예상 광고비": monthly_ad,
-        })
-        month_df["ROAS"] = month_df["예상 매출"] / month_df["예상 광고비"].replace(0, np.nan)
-
-        fig = make_subplots(specs=[[{"secondary_y": True}]])
-        fig.add_trace(go.Bar(x=month_df["월"], y=month_df["예상 매출"], name="예상 매출"), secondary_y=False)
-        fig.add_trace(go.Bar(x=month_df["월"], y=month_df["예상 광고비"], name="예상 광고비"), secondary_y=False)
-        fig.add_trace(go.Scatter(x=month_df["월"], y=month_df["ROAS"], name="ROAS", mode="lines+markers"), secondary_y=True)
-        fig.update_layout(height=420, barmode="group", margin=dict(t=10, b=10, l=10, r=10), legend=dict(orientation="h", y=1.02, x=0))
-        st.plotly_chart(fig, use_container_width=True, key=f"br_month_combo_{sub_mode}")
-
-        if sub_mode == "내부":
-            disp = month_df.copy()
-            disp["예상 매출"] = disp["예상 매출"].map(lambda x: f"{x:,.0f}")
-            disp["예상 광고비"] = disp["예상 광고비"].map(lambda x: f"{x:,.0f}")
-            disp["ROAS"] = disp["ROAS"].map(lambda x: "-" if pd.isna(x) else f"{x:.2f}")
-            st.dataframe(disp, use_container_width=True, hide_index=True, key=f"br_month_table_{sub_mode}")
+# End
