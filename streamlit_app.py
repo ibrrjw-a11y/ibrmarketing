@@ -68,8 +68,21 @@ hr.soft {{
 .badge-blue {{ background: rgba(47,111,237,0.12); color: rgb(47,111,237); }}
 .badge-green {{ background: rgba(25,135,84,0.12); color: rgb(25,135,84); }}
 .badge-red {{ background: rgba(220,53,69,0.12); color: rgb(220,53,69); }}
+
+/* ✅ white-on-white 방지: 카드/데이터프레임/입력 위젯 텍스트 강제 다크 */
+.card, .card * { color: #212529 !important; background: white; }
+
+div[data-testid="metric-container"] * { color: #212529 !important; }
+div[data-testid="stDataFrame"] * { color: #212529 !important; }
+div[data-testid="stDataEditor"] * { color: #212529 !important; }
+
+div[data-baseweb="select"] * { color: #212529 !important; }
+input, textarea { color: #212529 !important; }
+
 </style>
 """, unsafe_allow_html=True)
+
+
 
 # =========================
 # Early guard: plotly required
@@ -1017,132 +1030,178 @@ with tab_agency:
 
     st.divider()
 
-    # =========== Media Mix Proposal ===========
-    st.markdown("## 미디어 믹스 (제안/정산)")
+    # =========== Media Mix Proposal (통합표) ===========
+st.markdown("## 미디어 믹스 (제안/정산)")
 
-    perf_budget = float(sim["ad_spend"]) * float(group_share.get("퍼포먼스", 1.0))
-    viral_budget = float(sim["ad_spend"]) * float(group_share.get("바이럴", 0.0))
+perf_budget = float(sim["ad_spend"]) * float(group_share.get("퍼포먼스", 1.0))
+viral_budget = float(sim["ad_spend"]) * float(group_share.get("바이럴", 0.0))
 
-    left, right = st.columns([1, 1])
+# 바이럴 단가표(기존 기능 유지)
+with st.expander("바이럴 단가표(편집 가능)", expanded=False):
+    st.caption("지면 단가/비율 수정 → 건수/총비용에 즉시 반영됩니다.")
+    viral_price = st.data_editor(
+        DEFAULT_VIRAL_PRICE.copy(),
+        num_rows="dynamic",
+        use_container_width=True,
+        key=f"viral_price_editor_{scenario_key}"
+    )
 
-    # -------- Performance --------
-    with left:
-        st.markdown("### 퍼포먼스")
-        perf_df = build_performance_mix_table(media_share["perf"], perf_budget)
+# 원본 계산(기존 로직 유지)
+perf_df = build_performance_mix_table(media_share["perf"], perf_budget)
+medium_share = viral_medium_shares(media_share["viral"])
+viral_df = build_viral_mix_table(viral_price, medium_share, viral_budget)
 
-        if perf_df.empty:
-            st.info("퍼포먼스 믹스 데이터가 비어있습니다(해당 시나리오 비율 0).")
-        else:
-            if submode.startswith("내부"):
-                # internal: fee/payback reflect
-                perf_df["대행수수료율(%)"] = 0.0
-                perf_df["페이백률(%)"] = 0.0
+# ✅ 퍼포먼스/바이럴 통합 테이블로 변환
+mix_rows = []
 
-                edited = st.data_editor(
-                    perf_df[["구분2", "매체", "예산(계획)", "목표 ROAS(%)", "대행수수료율(%)", "페이백률(%)"]],
-                    use_container_width=True,
-                    hide_index=True,
-                    disabled=["구분2", "매체", "예산(계획)"],
-                    key=f"perf_editor_int_{scenario_key}"
-                )
+# 퍼포먼스 -> 통합행
+if not perf_df.empty:
+    for _, r in perf_df.iterrows():
+        mix_rows.append({
+            "유형": "퍼포먼스",
+            "구분": r.get("구분2", ""),
+            "매체": r.get("매체", ""),
+            "지면": "",
+            "계획비(원)": float(r.get("예산(계획)", 0.0)),
+            "목표 ROAS(%)": float(r.get("목표 ROAS(%)", 0.0)),
+            "대행수수료율(%)": 0.0,
+            "페이백률(%)": 0.0,
+            "청구예상비용(원)": 0.0,
+            "페이백예상액(원)": 0.0,
+            "건당비용(원)": np.nan,
+            "진행 건수": np.nan,
+            "실집행비(원)": np.nan,
+            "마진(원)": np.nan,
+        })
 
-                outp = perf_df.copy()
-                outp.update(edited)
+# 바이럴 -> 통합행
+if not viral_df.empty:
+    for _, r in viral_df.iterrows():
+        mix_rows.append({
+            "유형": "바이럴",
+            "구분": r.get("매체", ""),
+            "매체": r.get("매체", ""),
+            "지면": r.get("지면", ""),
+            "계획비(원)": float(r.get("총비용(계획)", 0.0)),
+            "목표 ROAS(%)": np.nan,
+            "대행수수료율(%)": np.nan,
+            "페이백률(%)": np.nan,
+            "청구예상비용(원)": np.nan,
+            "페이백예상액(원)": np.nan,
+            "건당비용(원)": float(r.get("건당비용", np.nan)),
+            "진행 건수": float(r.get("진행 건수", np.nan)),
+            "실집행비(원)": 0.0 if submode.startswith("내부") else np.nan,
+            "마진(원)": 0.0 if submode.startswith("내부") else np.nan,
+        })
 
-                outp["청구예상비용"] = outp.apply(
-                    lambda r: round_to_100(float(r["예산(계획)"]) * (1.0 + float(r["대행수수료율(%)"]) / 100.0)), axis=1
-                )
-                outp["페이백예상액"] = outp.apply(
-                    lambda r: round_to_100(float(r["예산(계획)"]) * (float(r["페이백률(%)"]) / 100.0)), axis=1
-                )
+mix_df = pd.DataFrame(mix_rows)
 
-                st.dataframe(
-                    outp[["구분2", "매체", "예산(계획)", "목표 ROAS(%)", "대행수수료율(%)", "청구예상비용", "페이백률(%)", "페이백예상액"]],
-                    use_container_width=True,
-                    hide_index=True
-                )
+if mix_df.empty:
+    st.info("미디어 믹스 데이터가 비어있습니다(해당 시나리오 비율 0).")
+else:
+    # 보기 좋은 정렬
+    mix_df["유형"] = pd.Categorical(mix_df["유형"], categories=["퍼포먼스", "바이럴"], ordered=True)
+    mix_df = mix_df.sort_values(["유형", "구분", "매체", "지면"]).reset_index(drop=True)
 
-                s1, s2, s3 = st.columns(3)
-                s1.metric("퍼포먼스 계획비 합계", fmt_won(outp["예산(계획)"].sum()))
-                s2.metric("청구예상 합계", fmt_won(outp["청구예상비용"].sum()))
-                s3.metric("페이백예상 합계", fmt_won(outp["페이백예상액"].sum()))
-            else:
-                edited = st.data_editor(
-                    perf_df[["구분2", "매체", "예산(계획)", "목표 ROAS(%)"]],
-                    use_container_width=True,
-                    hide_index=True,
-                    disabled=["구분2", "매체", "예산(계획)"],
-                    key=f"perf_editor_ext_{scenario_key}"
-                )
-                st.dataframe(edited, use_container_width=True, hide_index=True)
+    # 내부/외부 모드별 편집 정책
+    if submode.startswith("내부"):
+        st.markdown("### 통합 미디어 믹스 표 (내부 정산용)")
+        # 편집 가능한 컬럼(열 단위: data_editor는 행 단위 disable이 불가하므로 열로 통제)
+        editable_cols = [
+            "유형", "구분", "매체", "지면", "계획비(원)",
+            "목표 ROAS(%)", "대행수수료율(%)", "페이백률(%)",
+            "청구예상비용(원)", "페이백예상액(원)",
+            "건당비용(원)", "진행 건수",
+            "실집행비(원)", "마진(원)"
+        ]
+        disabled_cols = [
+            "유형", "구분", "매체", "지면",
+            "계획비(원)", "청구예상비용(원)", "페이백예상액(원)",
+            "건당비용(원)", "진행 건수", "마진(원)"
+        ]
 
+        edited = st.data_editor(
+            mix_df[editable_cols],
+            use_container_width=True,
+            hide_index=True,
+            disabled=disabled_cols,
+            key=f"mix_editor_internal_{scenario_key}"
+        )
+        out = mix_df.copy()
+        out.update(edited)
+
+        # ✅ 퍼포먼스 정산 계산
+        m_perf = out["유형"].astype(str) == "퍼포먼스"
+        out.loc[m_perf, "대행수수료율(%)"] = out.loc[m_perf, "대행수수료율(%)"].apply(lambda x: to_float(x, 0.0))
+        out.loc[m_perf, "페이백률(%)"] = out.loc[m_perf, "페이백률(%)"].apply(lambda x: to_float(x, 0.0))
+
+        out.loc[m_perf, "청구예상비용(원)"] = out.loc[m_perf].apply(
+            lambda r: round_to_100(to_float(r["계획비(원)"], 0.0) * (1.0 + to_float(r["대행수수료율(%)"], 0.0) / 100.0)),
+            axis=1
+        )
+        out.loc[m_perf, "페이백예상액(원)"] = out.loc[m_perf].apply(
+            lambda r: round_to_100(to_float(r["계획비(원)"], 0.0) * (to_float(r["페이백률(%)"], 0.0) / 100.0)),
+            axis=1
+        )
+
+        # ✅ 바이럴 마진 계산
+        m_viral = out["유형"].astype(str) == "바이럴"
+        out.loc[m_viral, "실집행비(원)"] = out.loc[m_viral, "실집행비(원)"].apply(lambda x: to_float(x, 0.0))
+        out.loc[m_viral, "마진(원)"] = out.loc[m_viral].apply(
+            lambda r: round_to_100(to_float(r["계획비(원)"], 0.0) - to_float(r["실집행비(원)"], 0.0)),
+            axis=1
+        )
+
+        st.dataframe(out[editable_cols], use_container_width=True, hide_index=True)
+
+        # 합계 요약(기존 기능 유지/확장)
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("퍼포먼스 계획비 합계", fmt_won(out.loc[m_perf, "계획비(원)"].sum()))
+        s2.metric("퍼포먼스 청구예상 합계", fmt_won(out.loc[m_perf, "청구예상비용(원)"].sum()))
+        s3.metric("바이럴 계획비 합계", fmt_won(out.loc[m_viral, "계획비(원)"].sum()))
+        s4.metric("바이럴 마진 합계", fmt_won(out.loc[m_viral, "마진(원)"].sum()))
+
+    else:
+        st.markdown("### 통합 미디어 믹스 표 (외부 제안용)")
+        view_cols = ["유형", "구분", "매체", "지면", "계획비(원)", "목표 ROAS(%)", "건당비용(원)", "진행 건수"]
+        disabled_cols = ["유형", "구분", "매체", "지면", "계획비(원)", "건당비용(원)", "진행 건수"]
+
+        # ✅ 여기서 ‘중복 표’가 생기지 않게: data_editor 하나만 사용 (dataframe로 재출력 X)
+        st.data_editor(
+            mix_df[view_cols],
+            use_container_width=True,
+            hide_index=True,
+            disabled=disabled_cols,
+            key=f"mix_editor_external_{scenario_key}"
+        )
+
+    # 도넛은 기존대로 유지(요청은 “표 통합”, 차트까지 합치라는 건 아니었음)
+    cL, cR = st.columns(2)
+    with cL:
+        if not perf_df.empty:
             st.plotly_chart(
                 donut_chart(
                     perf_df["매체"].tolist(),
                     perf_df["예산(계획)"].astype(float).tolist(),
                     title="퍼포먼스 예산 분배(100%)",
-                    height=320
+                    height=300
                 ),
                 use_container_width=True,
                 key=f"donut_perf_{scenario_key}"
             )
-
-    # -------- Viral --------
-    with right:
-        st.markdown("### 바이럴")
-        with st.expander("바이럴 단가표(편집 가능)", expanded=False):
-            st.caption("지면 단가/비율 수정 → 건수/총비용에 즉시 반영됩니다.")
-            viral_price = st.data_editor(
-                DEFAULT_VIRAL_PRICE.copy(),
-                num_rows="dynamic",
-                use_container_width=True,
-                key=f"viral_price_editor_{scenario_key}"
-            )
-
-        medium_share = viral_medium_shares(media_share["viral"])
-        viral_df = build_viral_mix_table(viral_price, medium_share, viral_budget)
-
-        if viral_df.empty:
-            st.info("바이럴 믹스 데이터가 비어있습니다(해당 시나리오 비율 0).")
-        else:
-            if submode.startswith("내부"):
-                viral_df["실집행비(원)"] = 0.0
-                edited = st.data_editor(
-                    viral_df[["매체", "지면", "건당비용", "진행 건수", "총비용(계획)", "실집행비(원)"]],
-                    use_container_width=True,
-                    hide_index=True,
-                    disabled=["매체", "지면", "건당비용", "진행 건수", "총비용(계획)"],
-                    key=f"viral_editor_int_{scenario_key}"
-                )
-                outv = viral_df.copy()
-                outv.update(edited)
-                outv["마진(원)"] = outv["총비용(계획)"].astype(float) - outv["실집행비(원)"].astype(float)
-
-                st.dataframe(
-                    outv[["매체", "지면", "건당비용", "진행 건수", "총비용(계획)", "실집행비(원)", "마진(원)"]],
-                    use_container_width=True,
-                    hide_index=True
-                )
-
-                t1, t2, t3 = st.columns(3)
-                t1.metric("바이럴 계획비 합계", fmt_won(outv["총비용(계획)"].sum()))
-                t2.metric("바이럴 실집행 합계", fmt_won(outv["실집행비(원)"].sum()))
-                t3.metric("바이럴 마진 합계", fmt_won(outv["마진(원)"].sum()))
-            else:
-                st.dataframe(
-                    viral_df[["매체", "지면", "건당비용", "진행 건수", "총비용(계획)"]],
-                    use_container_width=True,
-                    hide_index=True
-                )
-
+    with cR:
+        if not viral_df.empty:
             med_sum = viral_df.groupby("매체")["총비용(계획)"].sum().reset_index()
             st.plotly_chart(
-                donut_chart(med_sum["매체"].tolist(), med_sum["총비용(계획)"].tolist(), title="바이럴 예산 분배(100%)", height=320),
+                donut_chart(
+                    med_sum["매체"].tolist(),
+                    med_sum["총비용(계획)"].tolist(),
+                    title="바이럴 예산 분배(100%)",
+                    height=300
+                ),
                 use_container_width=True,
                 key=f"donut_viral_{scenario_key}"
             )
-
-    st.divider()
 
     # ======================
     # Scenario compare (scenario KPI 반영)
