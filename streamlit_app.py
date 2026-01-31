@@ -93,6 +93,133 @@ def fmt_won(x) -> str:
         return f"{float(x):,.0f} 원"
     except Exception:
         return "-"
+def top_key(d: Dict[str, float]) -> Tuple[Optional[str], float]:
+    if not d:
+        return None, 0.0
+    items = sorted(d.items(), key=lambda x: x[1], reverse=True)
+    return (items[0][0], float(items[0][1])) if items else (None, 0.0)
+
+def detect_sales_archetype(rev_share: Dict[str, float], sales_focus: str = "(무관)") -> str:
+    """
+    rev_share key examples contain: 자사몰, 스마트스토어, 쿠팡, 홈쇼핑, 공구, B2B 등
+    sales_focus(추천탭 입력)가 있으면 우선 반영, 없으면 rev_share로 추정
+    """
+    if sales_focus and sales_focus != "(무관)":
+        # UI 입력을 그대로 archetype으로 사용
+        if sales_focus in ["자사몰", "온라인(마켓)", "홈쇼핑", "공구", "B2B/도매"]:
+            return sales_focus
+
+    k, _ = top_key(rev_share)
+    if not k:
+        return "기타"
+
+    k = str(k)
+    if "자사" in k:
+        return "자사몰"
+    if "스마트" in k or "스스" in k or "스토어" in k:
+        return "온라인(마켓)"
+    if "쿠팡" in k:
+        return "온라인(마켓)"
+    if "홈쇼핑" in k:
+        return "홈쇼핑"
+    if "공구" in k or "공동" in k:
+        return "공구"
+    if "B2B" in k or "도매" in k:
+        return "B2B/도매"
+    return "기타"
+
+def strategy_recommendation(
+    rev_share: Dict[str, float],
+    sales_focus: str = "(무관)",
+) -> Dict[str, object]:
+    """
+    너가 말한 룰을 그대로 반영:
+    - 자사몰 크면: 메타 비중 커야
+    - 스마트스토어 크면: 네이버 비중
+    - 쿠팡 크면: 외부몰PA가 제일 크고 그 다음 메타
+    - 홈쇼핑 크면: 네이버SA/블로그 + 쿠팡PA가 커야, 이 경우 메타/구글은 안함
+    - 공구(그룹바잉) 위주면: 인플루언서(인스타 메가)가 제일 커야
+    """
+    # 채널 존재 추정(키워드 매칭)
+    def share_contains(keyword: str) -> float:
+        s = 0.0
+        for k, v in rev_share.items():
+            if keyword in str(k):
+                s += float(v)
+        return s
+
+    own = share_contains("자사")
+    smart = share_contains("스마트") + share_contains("스토어")
+    coupang = share_contains("쿠팡")
+    home = share_contains("홈쇼핑")
+    groupbuy = share_contains("공구") + share_contains("공동")
+
+    archetype = detect_sales_archetype(rev_share, sales_focus=sales_focus)
+
+    # 우선순위/룰 세팅
+    if home >= max(own, smart, coupang, groupbuy) and home > 0:
+        title = "홈쇼핑 연계형"
+        priority = [
+            ("Naver SA", "홈쇼핑 유입/검색 수요 회수 중심"),
+            ("네이버 블로그·콘텐츠", "검색 신뢰/후기·정보성 보강"),
+            ("쿠팡 PA", "방송 후 수요를 마켓에서 흡수"),
+        ]
+        note = "이 케이스는 약속 리스크를 줄이기 위해 메타/구글 집행은 제외(또는 최소)하는 방향을 권장"
+    elif groupbuy >= max(own, smart, coupang, home) and groupbuy > 0:
+        title = "공구(그룹바잉) 중심형"
+        priority = [
+            ("인플루언서(인스타 메가)", "공구는 매체 효율보다 ‘판매자 파워/신뢰’가 매출을 좌우"),
+            ("바이럴(핫딜/커뮤니티)", "구매 트리거·확산"),
+            ("외부몰/제휴 PA", "공구 외 추가 판매분 흡수"),
+        ]
+        note = "이 케이스는 퍼포먼스보다 ‘판매자/콘텐츠 드라이브’가 우선"
+    elif coupang >= max(own, smart, home, groupbuy) and coupang > 0:
+        title = "쿠팡(마켓) 중심형"
+        priority = [
+            ("외부몰 PA(쿠팡)", "가장 직접적인 매출 견인 레버"),
+            ("메타", "리타겟/확장 및 수요 생성(보조)"),
+            ("네이버 SA", "보조 검색 수요 회수"),
+        ]
+        note = "쿠팡 비중이 클수록 PA가 1순위, 그 다음 메타가 자연스러움"
+    elif smart >= max(own, coupang, home, groupbuy) and smart > 0:
+        title = "스마트스토어(네이버) 중심형"
+        priority = [
+            ("Naver SA", "검색 기반 전환 확보"),
+            ("네이버 DA/GFA", "네이버 생태계 내 확장"),
+            ("바이럴(네이버 지면)", "스마트블록/콘텐츠 연계"),
+        ]
+        note = "스마트스토어 비중이 클수록 네이버 비중을 높이는 게 일관됨"
+    elif own >= max(smart, coupang, home, groupbuy) and own > 0:
+        title = "자사몰 중심형"
+        priority = [
+            ("메타", "자사몰은 랜딩/리타겟 설계가 강점 → 매출 효율 기대"),
+            ("Google(선택)", "검색 수요 회수(상품/브랜드 검색 중심)"),
+            ("네이버 SA(선택)", "국내 검색 수요 보조"),
+        ]
+        note = "자사몰 매출 비중이 클수록 메타 비중을 키우는 룰이 가장 잘 맞음"
+    else:
+        title = "혼합형(균형 운영)"
+        priority = [
+            ("Naver SA", "기본 검색 수요 회수"),
+            ("메타", "수요 생성/리타겟"),
+            ("마켓 PA", "보유 채널에서 매출 흡수"),
+        ]
+        note = "매출 채널이 명확히 치우치지 않으면 3축 균형 운영을 권장"
+
+    # 근거(상위 매출채널 Top3)
+    top3 = sorted(rev_share.items(), key=lambda x: x[1], reverse=True)[:3]
+    evidence = [f"{k}: {v*100:.1f}%" for k, v in top3 if v > 0]
+
+    return {
+        "title": title,
+        "archetype": archetype,
+        "priority": priority,
+        "note": note,
+        "evidence": evidence,
+        "signals": {
+            "자사몰": own, "스마트스토어": smart, "쿠팡": coupang, "홈쇼핑": home, "공구": groupbuy
+        }
+    }
 
 def fmt_pct(x, digits=1) -> str:
     try:
@@ -1199,7 +1326,23 @@ with tab_rec:
         topn = st.selectbox("추천 개수", [3, 5, 10], index=0, key="rec_topn")
 
     run = st.button("추천 실행", use_container_width=True, key="rec_run")
+    st.divider()
+    st.markdown("### 전략 추천(채널 우선순위)")
 
+    reco = strategy_recommendation(rev_share, sales_focus=sales_focus)
+
+    st.markdown(
+        f"<div class='card'>"
+        f"<h3 style='margin:0;'>추천 전략: {reco['title']}</h3>"
+        f"<div class='smallcap'>판단 근거(매출채널 Top): {' · '.join(reco['evidence']) if reco['evidence'] else '데이터 부족'}</div>"
+        f"<hr class='soft'/>"
+        f"<div style='font-weight:700;margin-bottom:6px;'>우선순위</div>"
+        + "".join([f"<div>• <b>{a}</b> — {b}</div>" for a,b in reco["priority"]])
+        + f"<hr class='soft'/>"
+        f"<div class='smallcap'>메모: {reco['note']}</div>"
+        f"</div>",
+        unsafe_allow_html=True
+    )
     def score_row(rr: pd.Series) -> float:
         score = 0.0
 
