@@ -70,18 +70,16 @@ hr.soft {{
 .badge-red {{ background: rgba(220,53,69,0.12); color: rgb(220,53,69); }}
 
 /* ✅ white-on-white 방지: 카드/데이터프레임/입력 위젯 텍스트 강제 다크 */
-.card, .card * { color: #212529 !important; background: white; }
+.card, .card * {{ color: #212529 !important; background: white; }}
 
-div[data-testid="metric-container"] * { color: #212529 !important; }
-div[data-testid="stDataFrame"] * { color: #212529 !important; }
-div[data-testid="stDataEditor"] * { color: #212529 !important; }
+div[data-testid="metric-container"] * {{ color: #212529 !important; }}
+div[data-testid="stDataFrame"] * {{ color: #212529 !important; }}
+div[data-testid="stDataEditor"] * {{ color: #212529 !important; }}
 
-div[data-baseweb="select"] * { color: #212529 !important; }
-input, textarea { color: #212529 !important; }
-
+div[data-baseweb="select"] * {{ color: #212529 !important; }}
+input, textarea {{ color: #212529 !important; }}
 </style>
 """, unsafe_allow_html=True)
-
 
 
 # =========================
