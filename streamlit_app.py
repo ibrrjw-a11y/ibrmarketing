@@ -189,20 +189,17 @@ def pick_kpi_for_media_from_row(row: pd.Series, media: str):
     out = {}
     for token, aliases in TOKEN_ALIASES.items():
         found = None
-        # 1) exact KPI_TOKEN_media
         for al in aliases:
             exact = f"KPI_{al}_{media}"
             if exact in idx:
                 found = exact
                 break
-        # 2) exact media_TOKEN
         if not found:
             for al in aliases:
                 exact2 = f"{media}_{al}"
                 if exact2 in idx:
                     found = exact2
                     break
-        # 3) fuzzy
         if not found:
             for c in idx:
                 cc = str(c)
@@ -542,7 +539,7 @@ def recommend_top3_allinone(payload, df_all: pd.DataFrame, key_to_label: dict):
             if m["ST"] == payload["stage"] and m["CAT"] == payload["category"] and m["POS"] == payload["position"]:
                 candidates.append(s)
     if not candidates:
-        candidates = scenarios[:]  # fallback: allow all
+        candidates = scenarios[:]  # fallback
 
     results = []
     for s in candidates:
@@ -728,21 +725,28 @@ with tab_rec:
                             st.write(f"- {line}")
 
                         with st.expander("상세(믹스)", expanded=False):
-                            rowdf = df_all[df_all["시나리오명"].astype(str).str.strip() == str(r["scenario_key"]).strip()]
-                            row0 = rowdf.iloc[0] if not rowdf.empty else None
+                            rowdf2 = df_all[df_all["시나리오명"].astype(str).str.strip() == str(r["scenario_key"]).strip()]
+                            row0 = rowdf2.iloc[0] if not rowdf2.empty else None
 
                             ch = build_channel_mix_from_row(row0)
                             adg_r = build_media_grouped_from_row(row0)
                             gw_r = adg_r.get("_group_weights", {"performance": 0, "viral": 0, "brand": 0})
 
                             st.plotly_chart(
-                                donut_chart(["퍼포먼스", "바이럴", "브랜드"], [gw_r["performance"], gw_r["viral"], gw_r["brand"]], title="그룹 구성(100%)", height=280),
+                                donut_chart(["퍼포먼스", "바이럴", "브랜드"],
+                                            [gw_r["performance"], gw_r["viral"], gw_r["brand"]],
+                                            title="그룹 구성(100%)", height=280),
                                 use_container_width=True,
+                                key=f"rec_{i}_donut_group"
                             )
 
                             if ch:
                                 lab, val = topN_plus_other(ch, n=8)
-                                st.plotly_chart(donut_chart(lab, val, title="매출 채널 구성(100%)", height=280), use_container_width=True)
+                                st.plotly_chart(
+                                    donut_chart(lab, val, title="매출 채널 구성(100%)", height=280),
+                                    use_container_width=True,
+                                    key=f"rec_{i}_donut_channel"
+                                )
 
                             overall = {}
                             for m, v in adg_r.get("performance", {}).items():
@@ -752,9 +756,14 @@ with tab_rec:
                             for m, v in adg_r.get("brand", {}).items():
                                 overall[m] = overall.get(m, 0.0) + gw_r["brand"] * v
                             overall = normalize_shares(overall)
+
                             if overall:
                                 lab2, val2 = topN_plus_other(overall, n=10)
-                                st.plotly_chart(donut_chart(lab2, val2, title="미디어 믹스(100%)", height=280), use_container_width=True)
+                                st.plotly_chart(
+                                    donut_chart(lab2, val2, title="미디어 믹스(100%)", height=280),
+                                    use_container_width=True,
+                                    key=f"rec_{i}_donut_media"
+                                )
 
                         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -776,11 +785,9 @@ with tab_dash:
     adg = build_media_grouped_from_row(row)
     gw = adg.get("_group_weights", {"performance": 0, "viral": 0, "brand": 0})
 
-    # base KPIs (mix-weighted)
     def get_any_kpi_scalar(row, token, default):
         if row is None:
             return default
-
         gw_local = gw
         overall = {}
         for m, v in adg.get("performance", {}).items():
@@ -813,15 +820,22 @@ with tab_dash:
     st.markdown(f"### {scenario_label}")
     st.markdown(f"<div class='smallcap'>{scenario_key}</div>", unsafe_allow_html=True)
 
-    # 믹스(100%) 도넛
     st.markdown("#### 믹스 요약(100%)")
     cA, cB, cC = st.columns(3)
     with cA:
-        st.plotly_chart(donut_chart(["퍼포먼스", "바이럴", "브랜드"], [gw["performance"], gw["viral"], gw["brand"]], title="그룹 구성", height=300), use_container_width=True)
+        st.plotly_chart(
+            donut_chart(["퍼포먼스", "바이럴", "브랜드"], [gw["performance"], gw["viral"], gw["brand"]], title="그룹 구성", height=300),
+            use_container_width=True,
+            key="dash_donut_group"
+        )
     with cB:
         if channel_mix:
             lab, val = topN_plus_other(channel_mix, n=8)
-            st.plotly_chart(donut_chart(lab, val, title="매출 채널", height=300), use_container_width=True)
+            st.plotly_chart(
+                donut_chart(lab, val, title="매출 채널", height=300),
+                use_container_width=True,
+                key="dash_donut_channel"
+            )
         else:
             st.info("…매출비중 컬럼 없음(컬럼명: *매출비중)")
     with cC:
@@ -835,7 +849,11 @@ with tab_dash:
         overall = normalize_shares(overall)
         if overall:
             lab2, val2 = topN_plus_other(overall, n=10)
-            st.plotly_chart(donut_chart(lab2, val2, title="미디어 믹스", height=300), use_container_width=True)
+            st.plotly_chart(
+                donut_chart(lab2, val2, title="미디어 믹스", height=300),
+                use_container_width=True,
+                key="dash_donut_media"
+            )
         else:
             st.info("…미디어 믹스 컬럼 없음")
 
@@ -883,7 +901,7 @@ with tab_dash:
                 funnel_df = pd.DataFrame({"단계": ["노출(Impressions)", "유입(Clicks)", "전환(Conversions)"], "값": [impressions, clicks, conversions]})
                 fig_funnel = go.Figure(go.Funnel(y=funnel_df["단계"], x=funnel_df["값"], textinfo="value+percent initial"))
                 fig_funnel.update_layout(height=360, margin=dict(t=10, b=10))
-                st.plotly_chart(fig_funnel, use_container_width=True)
+                st.plotly_chart(fig_funnel, use_container_width=True, key="ag_ext_funnel")
 
         else:
             st.markdown("#### 내부(제안 제작용) — 광고비/마진/인건비 입력 포함")
@@ -902,7 +920,6 @@ with tab_dash:
                 expected_cac = est_unit["expected_CAC"]
                 use_mix_cac = st.toggle("시나리오 믹스 기반 CAC 사용(추천)", value=True, key="ag_int_use_mix_cac")
 
-                # KPI overrides
                 cpc = st.number_input("CPC (원)", value=float(base_cpc), step=10.0, key="ag_int_cpc")
                 cvr = st.number_input("CVR (%)", value=float(base_cvr * 100.0), step=0.1, key="ag_int_cvr") / 100.0
 
@@ -914,7 +931,6 @@ with tab_dash:
                     marketing_budget = None
 
             def simulate_pl(ad_spend=None, revenue=None):
-                # Scenario-mix CAC mode
                 if use_mix_cac and expected_cac and expected_cac > 0:
                     cac = float(expected_cac)
                     if revenue is not None:
@@ -966,7 +982,7 @@ with tab_dash:
                 fig_cost = px.bar(cost_df, x="항목", y="금액", text="금액")
                 fig_cost.update_traces(texttemplate="%{text:,.0f}", textposition="outside")
                 fig_cost.update_layout(height=340, yaxis_title=None, xaxis_title=None, margin=dict(t=10, b=10))
-                st.plotly_chart(fig_cost, use_container_width=True)
+                st.plotly_chart(fig_cost, use_container_width=True, key="ag_int_cost_bar")
 
             st.divider()
             st.markdown("#### 전략 비교 (내부)")
@@ -1010,7 +1026,7 @@ with tab_dash:
                 if view_mode in ("전체(매출+광고비+ROAS)", "ROAS만"):
                     fig.add_trace(go.Scatter(x=cmp_df["전략"], y=cmp_df["ROAS"], name="ROAS", mode="lines+markers"), secondary_y=True)
                 fig.update_layout(height=420, barmode="group", margin=dict(t=10, b=10, l=10, r=10), legend=dict(orientation="h", y=1.02, x=0))
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key="ag_int_compare_combo")
 
     # =====================================================
     # Brand
@@ -1084,13 +1100,17 @@ with tab_dash:
             donut_vals.append(abs(net_profit))
         fig_budget = px.pie(pd.DataFrame({"구성": donut_labels, "금액": donut_vals}), values="금액", names="구성", hole=0.52)
         fig_budget.update_layout(height=340, margin=dict(t=10, b=10))
-        st.plotly_chart(fig_budget, use_container_width=True)
+        st.plotly_chart(fig_budget, use_container_width=True, key=f"br_budget_donut_{sub_mode}")
 
         st.divider()
         st.markdown("### 유통 채널(상위)")
         if channel_mix:
             lab, val = topN_plus_other(channel_mix, n=8)
-            st.plotly_chart(donut_chart(lab, val, title="매출 채널 구성(100%)", height=360), use_container_width=True)
+            st.plotly_chart(
+                donut_chart(lab, val, title="매출 채널 구성(100%)", height=360),
+                use_container_width=True,
+                key=f"br_channel_donut_{sub_mode}"
+            )
         else:
             st.info("…매출비중 컬럼이 없어 채널 차트를 그릴 수 없습니다.")
 
@@ -1122,11 +1142,11 @@ with tab_dash:
         fig.add_trace(go.Bar(x=month_df["월"], y=month_df["예상 광고비"], name="예상 광고비"), secondary_y=False)
         fig.add_trace(go.Scatter(x=month_df["월"], y=month_df["ROAS"], name="ROAS", mode="lines+markers"), secondary_y=True)
         fig.update_layout(height=420, barmode="group", margin=dict(t=10, b=10, l=10, r=10), legend=dict(orientation="h", y=1.02, x=0))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key=f"br_month_combo_{sub_mode}")
 
         if sub_mode == "내부":
             disp = month_df.copy()
             disp["예상 매출"] = disp["예상 매출"].map(lambda x: f"{x:,.0f}")
             disp["예상 광고비"] = disp["예상 광고비"].map(lambda x: f"{x:,.0f}")
             disp["ROAS"] = disp["ROAS"].map(lambda x: "-" if pd.isna(x) else f"{x:.2f}")
-            st.dataframe(disp, use_container_width=True, hide_index=True)
+            st.dataframe(disp, use_container_width=True, hide_index=True, key=f"br_month_table_{sub_mode}")
