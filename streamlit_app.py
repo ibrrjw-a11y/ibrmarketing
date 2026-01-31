@@ -636,136 +636,173 @@ tab_rec, tab_dash = st.tabs(["✅ 추천 엔진", "📊 대시보드 (대행/브
 # =========================================================
 # TAB 1) Recommendation Engine
 # =========================================================
+# =========================================================
+# TAB 1) Recommendation Engine  (REPLACE THIS WHOLE BLOCK)
+# =========================================================
 with tab_rec:
     st.markdown("## 추천 엔진")
     st.markdown('<div class="smallcap">데이터 기반 Top3 추천 (룰 기반 스코어링 + KPI 기반 예상 CAC)</div>', unsafe_allow_html=True)
 
-    left, right = st.columns([0.95, 1.05])
+    # ---------- 입력: 상단(접기 가능) ----------
+    with st.expander("입력 조건 (열기/닫기)", expanded=True):
+        c1, c2, c3 = st.columns(3)
 
-    with left:
-        st.markdown("### 입력")
-        operator = st.selectbox("운영 주체", ["내부브랜드 운영자", "브랜드사 운영자(클라이언트)", "대행사(마케팅만)"], key="rec_operator")
-        stage = st.selectbox("단계(ST)", ["NEW", "EARLY", "GROW", "MATURE"], key="rec_stage")
-        category = st.selectbox("카테고리(CAT)", cat_options, key="rec_cat")
-        position = st.selectbox("가격 포지셔닝(POS)", ["L", "M", "P"], key="rec_pos")
-        sales_focus_channel = st.selectbox("판매 중심 채널", ["자사몰 중심", "온라인 중심", "홈쇼핑 중심", "공구 중심", "B2B 중심"], key="rec_sales")
-
-        online_market_focus = None
-        if sales_focus_channel == "온라인 중심":
-            online_market_focus = st.selectbox(
-                "온라인 마켓 포커스(옵션)",
-                [None, "쿠팡 중심", "스마트스토어 중심"],
-                format_func=lambda x: "미지정(자동)" if x is None else x,
-                key="rec_online_focus",
+        with c1:
+            operator = st.selectbox(
+                "운영 주체",
+                ["내부브랜드 운영자", "브랜드사 운영자(클라이언트)", "대행사(마케팅만)"],
+                key="rec_operator",
             )
+            stage = st.selectbox("단계(ST)", ["NEW", "EARLY", "GROW", "MATURE"], key="rec_stage")
+            category = st.selectbox("카테고리(CAT)", cat_options, key="rec_cat")
 
-        no_comp = st.toggle("경쟁키워드 판매의도 없음", value=True, key="rec_no_comp")
-        competitor_keyword_level = None
-        if not no_comp:
-            competitor_keyword_level = st.selectbox(
-                "경쟁키워드 검색량 구간",
-                ["매우낮음(~3,000)", "낮음(3,000~10,000)", "중간(10,000~20,000)", "높음(20,000~30,000)", "매우높음(35,000~)"],
-                key="rec_comp_lv",
+        with c2:
+            position = st.selectbox("가격 포지셔닝(POS)", ["L", "M", "P"], key="rec_pos")
+            sales_focus_channel = st.selectbox(
+                "판매 중심 채널",
+                ["자사몰 중심", "온라인 중심", "홈쇼핑 중심", "공구 중심", "B2B 중심"],
+                key="rec_sales",
             )
+            online_market_focus = None
+            if sales_focus_channel == "온라인 중심":
+                online_market_focus = st.selectbox(
+                    "온라인 마켓 포커스(옵션)",
+                    [None, "쿠팡 중심", "스마트스토어 중심"],
+                    format_func=lambda x: "미지정(자동)" if x is None else x,
+                    key="rec_online_focus",
+                )
 
-        brand_keyword_level = st.selectbox(
-            "브랜드 키워드(인지도) 검색량 구간",
-            ["매우낮음(~300)", "낮음(300~1,000)", "중간(1,000~4,000)", "높음(4,000~8,000)", "매우높음(8,000~)"],
-            key="rec_brand_lv",
-        )
+        with c3:
+            no_comp = st.toggle("경쟁키워드 판매의도 없음", value=True, key="rec_no_comp")
+            competitor_keyword_level = None
+            if not no_comp:
+                competitor_keyword_level = st.selectbox(
+                    "경쟁키워드 검색량 구간",
+                    ["매우낮음(~3,000)", "낮음(3,000~10,000)", "중간(10,000~20,000)", "높음(20,000~30,000)", "매우높음(35,000~)"],
+                    key="rec_comp_lv",
+                )
 
-        target_age = st.selectbox("주요 타겟 연령대", ["10대", "20대", "30대", "40대", "50대+"], key="rec_age")
-        total_ad_budget_krw = st.number_input("총 광고예산(원)", value=50_000_000, step=1_000_000, min_value=1, key="rec_budget")
+            brand_keyword_level = st.selectbox(
+                "브랜드 키워드(인지도) 검색량 구간",
+                ["매우낮음(~300)", "낮음(300~1,000)", "중간(1,000~4,000)", "높음(4,000~8,000)", "매우높음(8,000~)"],
+                key="rec_brand_lv",
+            )
+            target_age = st.selectbox("주요 타겟 연령대", ["10대", "20대", "30대", "40대", "50대+"], key="rec_age")
 
-        include_viral_if_missing = st.toggle("바이럴 KPI 없더라도 전환 포함(권장X)", value=False, key="rec_include_viral")
-        run = st.button("Top3 추천 계산", use_container_width=True, key="rec_run")
+        c4, c5, c6 = st.columns([1, 1, 1])
+        with c4:
+            total_ad_budget_krw = st.number_input("총 광고예산(원)", value=50_000_000, step=1_000_000, min_value=1, key="rec_budget")
+        with c5:
+            include_viral_if_missing = st.toggle("바이럴 KPI 없더라도 전환 포함(권장X)", value=False, key="rec_include_viral")
+        with c6:
+            run = st.button("Top3 추천 계산", use_container_width=True, key="rec_run")
 
-    with right:
-        st.markdown("### 결과")
-        if not run:
-            st.info("좌측 조건을 설정하고 **Top3 추천 계산**을 누르세요.")
+    st.markdown("---")
+
+    # ---------- 결과: 아래(가독성 좋게) ----------
+    if not run:
+        st.info("입력 조건을 설정하고 **Top3 추천 계산**을 누르세요.")
+    else:
+        payload = {
+            "operator": operator,
+            "stage": stage,
+            "category": category,
+            "position": position,
+            "sales_focus_channel": sales_focus_channel,
+            "online_market_focus": online_market_focus,
+            "no_competitor_intent": bool(no_comp),
+            "competitor_keyword_level": competitor_keyword_level,
+            "brand_keyword_level": brand_keyword_level,
+            "target_age": target_age,
+            "total_ad_budget_krw": float(total_ad_budget_krw),
+            "include_viral_conversions_if_kpi_missing": bool(include_viral_if_missing),
+        }
+
+        out = recommend_top3_allinone(payload=payload, df_all=df_all, key_to_label=key_to_label)
+
+        h1, h2, h3 = st.columns(3)
+        h1.metric("후보 전략 수", f"{out.get('candidate_count', 0):,} 개")
+        h2.metric("추천 결과", f"{len(out.get('recommendations', []))} 개")
+        h3.metric("예산(입력)", fmt_won(total_ad_budget_krw))
+
+        recs = out.get("recommendations", [])
+        if not recs:
+            st.warning("추천 결과가 없습니다. (시나리오 키 규칙/카테고리 파싱/데이터 확인 필요)")
         else:
-            payload = {
-                "operator": operator,
-                "stage": stage,
-                "category": category,
-                "position": position,
-                "sales_focus_channel": sales_focus_channel,
-                "online_market_focus": online_market_focus,
-                "no_competitor_intent": bool(no_comp),
-                "competitor_keyword_level": competitor_keyword_level,
-                "brand_keyword_level": brand_keyword_level,
-                "target_age": target_age,
-                "total_ad_budget_krw": float(total_ad_budget_krw),
-                "include_viral_conversions_if_kpi_missing": bool(include_viral_if_missing),
-            }
+            # ✅ 보기 좋은 레이아웃 선택(토글)
+            layout = st.radio("결과 레이아웃", ["세로(1열)", "2열"], horizontal=True, key="rec_layout")
 
-            out = recommend_top3_allinone(payload=payload, df_all=df_all, key_to_label=key_to_label)
+            def render_card(i, r):
+                st.markdown("<div class='card'>", unsafe_allow_html=True)
+                st.markdown(f"### #{i+1} {r['scenario_label']}")
+                st.caption(r["scenario_key"])
 
-            c1, c2 = st.columns(2)
-            c1.metric("후보 전략 수", f"{out.get('candidate_count', 0):,} 개")
-            c2.metric("추천 결과", f"{len(out.get('recommendations', []))} 개")
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Score", f"{r['score']:.1f}")
+                m2.metric("예상 CAC", fmt_won(r["expected_metrics"]["expected_CAC"]))
+                m3.metric("예상 전환", f"{r['expected_metrics']['expected_conversions']:.1f}")
 
-            recs = out.get("recommendations", [])
-            if not recs:
-                st.warning("추천 결과가 없습니다. (시나리오 키 규칙/카테고리 파싱/데이터 확인 필요)")
-            else:
-                cols = st.columns(3)
+                st.markdown("<hr class='soft'/>", unsafe_allow_html=True)
+                st.write("**요약 근거(3줄)**")
+                for line in r["why"]:
+                    st.write(f"- {line}")
+
+                with st.expander("상세(믹스 차트)", expanded=False):
+                    rowdf2 = df_all[df_all["시나리오명"].astype(str).str.strip() == str(r["scenario_key"]).strip()]
+                    row0 = rowdf2.iloc[0] if not rowdf2.empty else None
+
+                    ch = build_channel_mix_from_row(row0)
+                    adg_r = build_media_grouped_from_row(row0)
+                    gw_r = adg_r.get("_group_weights", {"performance": 0, "viral": 0, "brand": 0})
+
+                    st.plotly_chart(
+                        donut_chart(["퍼포먼스", "바이럴", "브랜드"],
+                                    [gw_r["performance"], gw_r["viral"], gw_r["brand"]],
+                                    title="그룹 구성(100%)", height=260),
+                        use_container_width=True,
+                        key=f"rec_{i}_donut_group"
+                    )
+
+                    if ch:
+                        lab, val = topN_plus_other(ch, n=8)
+                        st.plotly_chart(
+                            donut_chart(lab, val, title="매출 채널 구성(100%)", height=260),
+                            use_container_width=True,
+                            key=f"rec_{i}_donut_channel"
+                        )
+
+                    overall = {}
+                    for m, v in adg_r.get("performance", {}).items():
+                        overall[m] = overall.get(m, 0.0) + gw_r["performance"] * v
+                    for m, v in adg_r.get("viral", {}).items():
+                        overall[m] = overall.get(m, 0.0) + gw_r["viral"] * v
+                    for m, v in adg_r.get("brand", {}).items():
+                        overall[m] = overall.get(m, 0.0) + gw_r["brand"] * v
+                    overall = normalize_shares(overall)
+
+                    if overall:
+                        lab2, val2 = topN_plus_other(overall, n=10)
+                        st.plotly_chart(
+                            donut_chart(lab2, val2, title="미디어 믹스(100%)", height=260),
+                            use_container_width=True,
+                            key=f"rec_{i}_donut_media"
+                        )
+
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            if layout == "세로(1열)":
                 for i, r in enumerate(recs):
-                    with cols[i]:
-                        st.markdown("<div class='card'>", unsafe_allow_html=True)
-                        st.markdown(f"#### #{i+1} {r['scenario_label']}")
-                        st.caption(r["scenario_key"])
-                        st.metric("Score", f"{r['score']:.1f}")
-                        st.metric("예상 CAC", fmt_won(r["expected_metrics"]["expected_CAC"]))
-                        st.metric("예상 전환", f"{r['expected_metrics']['expected_conversions']:.1f}")
-
-                        st.markdown("<hr class='soft'/>", unsafe_allow_html=True)
-                        for line in r["why"]:
-                            st.write(f"- {line}")
-
-                        with st.expander("상세(믹스)", expanded=False):
-                            rowdf2 = df_all[df_all["시나리오명"].astype(str).str.strip() == str(r["scenario_key"]).strip()]
-                            row0 = rowdf2.iloc[0] if not rowdf2.empty else None
-
-                            ch = build_channel_mix_from_row(row0)
-                            adg_r = build_media_grouped_from_row(row0)
-                            gw_r = adg_r.get("_group_weights", {"performance": 0, "viral": 0, "brand": 0})
-
-                            st.plotly_chart(
-                                donut_chart(["퍼포먼스", "바이럴", "브랜드"],
-                                            [gw_r["performance"], gw_r["viral"], gw_r["brand"]],
-                                            title="그룹 구성(100%)", height=280),
-                                use_container_width=True,
-                                key=f"rec_{i}_donut_group"
-                            )
-
-                            if ch:
-                                lab, val = topN_plus_other(ch, n=8)
-                                st.plotly_chart(
-                                    donut_chart(lab, val, title="매출 채널 구성(100%)", height=280),
-                                    use_container_width=True,
-                                    key=f"rec_{i}_donut_channel"
-                                )
-
-                            overall = {}
-                            for m, v in adg_r.get("performance", {}).items():
-                                overall[m] = overall.get(m, 0.0) + gw_r["performance"] * v
-                            for m, v in adg_r.get("viral", {}).items():
-                                overall[m] = overall.get(m, 0.0) + gw_r["viral"] * v
-                            for m, v in adg_r.get("brand", {}).items():
-                                overall[m] = overall.get(m, 0.0) + gw_r["brand"] * v
-                            overall = normalize_shares(overall)
-
-                            if overall:
-                                lab2, val2 = topN_plus_other(overall, n=10)
-                                st.plotly_chart(
-                                    donut_chart(lab2, val2, title="미디어 믹스(100%)", height=280),
-                                    use_container_width=True,
-                                    key=f"rec_{i}_donut_media"
-                                )
-
-                        st.markdown("</div>", unsafe_allow_html=True)
+                    render_card(i, r)
+                    st.markdown("")  # spacing
+            else:
+                # 2열 그리드
+                for i in range(0, len(recs), 2):
+                    cL, cR = st.columns(2)
+                    with cL:
+                        render_card(i, recs[i])
+                    if i + 1 < len(recs):
+                        with cR:
+                            render_card(i + 1, recs[i + 1])
 
 # =========================================================
 # TAB 2) Dashboard
