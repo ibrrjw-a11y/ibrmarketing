@@ -73,11 +73,53 @@ hr.soft {{
 .card, .card * {{ color: #212529 !important; background: white; }}
 
 div[data-testid="metric-container"] * {{ color: #212529 !important; }}
-div[data-testid="stDataFrame"] * {{ color: #212529 !important; }}
-div[data-testid="stDataEditor"] * {{ color: #212529 !important; }}
 
-div[data-baseweb="select"] * {{ color: #212529 !important; }}
-input, textarea {{ color: #212529 !important; }}
+/* ---------- 기본 텍스트 ---------- */
+html, body, [class*="css"] {{
+  font-size: 14px;
+}}
+
+/* ---------- 카드(흰 배경) 전용: 카드 안의 글씨만 검정 ---------- */
+.card {{
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 14px;
+  padding: 14px 14px;
+  background: white;
+  color: #212529 !important;
+}}
+.card * {{
+  color: #212529 !important;
+  background: transparent;   /* ✅ 자식까지 흰색 배경 강제하지 말기(깨짐 방지) */
+}}
+
+/* ---------- 다크 UI 위젯(셀렉트/인풋) 글씨가 검게 먹는 문제 복구 ---------- */
+/* 셀렉트 박스(드롭다운) */
+div[data-baseweb="select"] * {{
+  color: rgba(255,255,255,0.92) !important;
+}}
+/* 셀렉트/인풋의 배경(너무 검으면 살짝 띄움) */
+div[data-baseweb="select"] > div {{
+  background: rgba(255,255,255,0.06) !important;
+}}
+
+/* 텍스트 입력/숫자 입력 */
+div[data-baseweb="base-input"] input,
+div[data-baseweb="base-input"] textarea {{
+  color: rgba(255,255,255,0.92) !important;
+}}
+div[data-baseweb="base-input"] > div {{
+  background: rgba(255,255,255,0.06) !important;
+}}
+
+/* placeholder 글씨 */
+input::placeholder, textarea::placeholder {{
+  color: rgba(255,255,255,0.45) !important;
+}}
+
+/* 라벨(필드명) */
+label, .stSelectbox label, .stTextInput label, .stNumberInput label {{
+  color: rgba(255,255,255,0.70) !important;
+}}
 </style>
 """, unsafe_allow_html=True)
 
