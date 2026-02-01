@@ -1225,23 +1225,38 @@ def _row_for_key(df_: pd.DataFrame, col_key: str, key: str) -> Optional[pd.Serie
 def _estimate_now_and_roi(
     row_: pd.Series,
     perf_cols_: List[str],
-    budget: float,
-    aov: float,
+    budget: Optional[float] = None,
+    aov: Optional[float] = None,
     months: int = 12,
     col_m_growth: Optional[str] = None,
     col_ad_contrib: Optional[str] = None,
     col_repurchase: Optional[str] = None,
     col_ad_dep: Optional[str] = None,
     gross_margin_rate: float = 0.0,   # 0~1
+    **kwargs,  # ✅ 추가: 어떤 인자가 더 와도 TypeError 방지
 ):
     """
-    추천 카드용: 현재/고점 비교용 간이 추정
-    - budget: 현재 월(or 기준기간) 광고비
-    - aov: 객단가
-    - gross_margin_rate: 매출총이익률(0~1). ROI 대신 '이익기반 ROI'도 보여주려면 사용.
+    추천 카드용: 현재/고점 비교용 간이 추정 (방탄 버전)
+    - 호출부가 budget=..., total_budget=..., ad_spend=... 등으로 섞여 있어도 동작하도록 kwargs 허용
     """
 
-    # ---- rates 0~1 ----
+    # --- budget/aov fallback: 호출부에서 다른 이름으로 넘기는 경우 흡수 ---
+    if budget is None:
+        # 흔히 쓰는 대체 키들
+        for k in ["total_budget", "ad_total", "ad_spend", "ad_budget", "spend"]:
+            if k in kwargs and kwargs[k] is not None:
+                budget = float(kwargs[k])
+                break
+    if aov is None:
+        for k in ["avg_order_value", "selling_price", "price", "unit_price"]:
+            if k in kwargs and kwargs[k] is not None:
+                aov = float(kwargs[k])
+                break
+
+    budget = float(budget or 0.0)
+    aov = float(aov or 0.0)
+
+    # ---- rate getter (0~1) ----
     def _get_rate(col):
         if col and col in row_.index:
             return normalize_ratio(row_.get(col))
@@ -1252,7 +1267,7 @@ def _estimate_now_and_roi(
     repurchase = _get_rate(col_repurchase)
     ad_dep = _get_rate(col_ad_dep)
 
-    # defaults (중립값)
+    # defaults
     if pd.isna(m_growth): m_growth = 0.0
     if pd.isna(ad_contrib): ad_contrib = 0.6
     if pd.isna(repurchase): repurchase = 0.2
@@ -1263,12 +1278,12 @@ def _estimate_now_and_roi(
     cpc = float(scn_cpc) if (scn_cpc is not None and scn_cpc > 0) else 300.0
     cvr = float(scn_cvr) if (scn_cvr is not None and scn_cvr > 0) else 0.02
 
-    now_ad = float(budget or 0.0)
+    now_ad = budget
 
     # 광고비 -> direct 매출
     clicks = now_ad / cpc if cpc > 0 else 0.0
     orders = clicks * cvr
-    direct_rev = orders * float(aov)
+    direct_rev = orders * aov
 
     # 광고기여율로 전체매출 환산
     total_rev = direct_rev / max(float(ad_contrib), 1e-6)
@@ -1280,7 +1295,7 @@ def _estimate_now_and_roi(
     # ROI(매출기준)
     now_roi = (total_rev - now_ad) / now_ad if now_ad > 0 else np.nan
 
-    # 이익기반 ROI(선택): (매출*마진 - 광고비)/광고비
+    # 이익기반 ROI(선택)
     gm = float(gross_margin_rate or 0.0)
     now_profit = total_rev * gm - now_ad
     now_profit_roi = (now_profit / now_ad) if now_ad > 0 else np.nan
