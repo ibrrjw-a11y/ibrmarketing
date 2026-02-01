@@ -93,6 +93,9 @@ if not HAS_PLOTLY:
 # =========================
 # Auth (Password gate)
 # =========================
+def _norm01_rate(x):
+    return normalize_ratio(x)
+
 def auth_gate() -> bool:
     if st.session_state.get("auth_ok", False):
         return True
