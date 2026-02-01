@@ -1835,10 +1835,11 @@ with tab_rec:
     st.divider()
 
     # ---- backdata의 성장/재구매/광고 관련 컬럼 자동 탐지 ----
-    col_m_growth = _get_rate_col(df, ["월 성장률", "월성장률", "monthly_growth", "MoM 성장률", "MoM"])
-    col_ad_contrib = _get_rate_col(df, ["광고기여율", "광고 기여율", "ad_contrib", "ad_contribution", "광고기여"])
-    col_repurchase = _get_rate_col(df, ["재구매율", "재구매", "repurchase", "repeat_rate"])
-    col_ad_dep = _get_rate_col(df, ["광고의존도", "광고 의존도", "ad_dependency", "ads_dependency", "ad_dep"])
+    col_m_growth = safe_col(df, ["월 성장률", "월성장률", "monthly_growth", "MoM 성장률", "MoM"])
+    col_ad_contrib = safe_col(df, ["광고기여율", "광고 기여율", "ad_contrib", "ad_contribution", "광고기여"])
+    col_repurchase = safe_col(df, ["재구매율", "재구매", "repurchase", "repeat_rate"])
+    col_ad_dep = safe_col(df, ["광고의존도", "광고 의존도", "ad_dependency", "ads_dependency", "ad_dep"])
+
 
     # ---- 입력(예전 느낌 유지하되, 비교에 필요한 최소 입력만 추가) ----
     with st.expander("입력 조건", expanded=True):
