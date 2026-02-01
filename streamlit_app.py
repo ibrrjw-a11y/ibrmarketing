@@ -1285,16 +1285,15 @@ with tab_brand:
 with tab_rec:
     # --- cat_options 안전 가드(없으면 생성) ---
     try:
-    cat_options
+        cat_options
     except NameError:
-    # scenarios가 없다면 df_all 기반으로 생성
-    try:
-        scenarios
-    except NameError:
-        scenarios = scenario_list_from_df(df_all)
+        try:
+            scenarios
+        except NameError:
+            scenarios = scenario_list_from_df(df_all)
 
-    parsed_local = [parse_scenario_key(s) for s in scenarios]
-    cat_options = sorted(list({p["CAT"] for p in parsed_local if p and p.get("CAT")})) or ["(카테고리 파싱 실패)"]
+        parsed_local = [parse_scenario_key(s) for s in scenarios]
+        cat_options = sorted(list({p["CAT"] for p in parsed_local if p and p.get("CAT")})) or ["(카테고리 파싱 실패)"]
 
     st.markdown("## 추천 엔진")
     st.markdown('<div class="smallcap">Top3 추천 (룰 기반 스코어링 + KPI 기반 예상 CAC)</div>', unsafe_allow_html=True)
