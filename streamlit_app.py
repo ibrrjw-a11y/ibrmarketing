@@ -1205,13 +1205,52 @@ scn_month_growth = get_row_growth(row, cols.get("month_growth"), default=0.0)
 scn_ad_contrib = get_row_rate(row, cols.get("ad_contrib"), default=1.0)
 scn_repurchase = get_row_rate(row, cols.get("repurchase"), default=0.0)
 scn_ad_dependency = get_row_rate(row, cols.get("ad_dependency"), default=scn_ad_contrib)
+
+def _rev_bucket_vec(rev_share: Dict[str, float]) -> Dict[str, float]:
+    # 채널명을 버킷으로 묶어서 벡터화
+    buckets = {"자사몰": 0.0, "스마트스토어": 0.0, "쿠팡": 0.0, "오프라인": 0.0, "온라인(기타)": 0.0}
+    for ch, v in (rev_share or {}).items():
+        b = rev_bucket(ch)
+        buckets[b] = buckets.get(b, 0.0) + float(v or 0.0)
+    return normalize_shares(buckets)
+
+def _cosine(a: Dict[str, float], b: Dict[str, float]) -> float:
+    keys = set(a.keys()) | set(b.keys())
+    va = np.array([float(a.get(k, 0.0) or 0.0) for k in keys], dtype=float)
+    vb = np.array([float(b.get(k, 0.0) or 0.0) for k in keys], dtype=float)
+    da = float(np.linalg.norm(va))
+    db = float(np.linalg.norm(vb))
+    if da <= 0 or db <= 0:
+        return 0.0
+    return float(np.dot(va, vb) / (da * db))
+
+def _media_kw_share(perf_share: Dict[str, float], keywords: List[str]) -> float:
+    s = 0.0
+    for k, v in (perf_share or {}).items():
+        kk = str(k)
+        if any(kw in kk for kw in keywords):
+            s += float(v or 0.0)
+    return float(s)
+
+def _ceiling_index(month_growth: float, repurchase: float, ad_dependency: float) -> float:
+    """
+    고점지수: 성장(+), 재구매(+), 광고의존(-)
+    0~2 정도 범위로 대략적인 비교지표 (상대 비교용)
+    """
+    g = float(month_growth or 0.0)
+    r = clamp01(repurchase, 0.0)
+    d = clamp01(ad_dependency, 0.0)
+
+    # 성장률은 -도 있으니 완만하게
+    g_score = np.clip(g * 6.0, -0.6, 0.9)      # -10%~-? ~ +15% 정도에서 완만
+    r_score = r * 0.9                         # 0~0.9
+    d_penalty = d * 0.7                       # 0~0.7
+
+    return float(np.clip(1.0 + g_score + r_score - d_penalty, 0.2, 2.2))
+
 # =========================================================
 # Recommendation helpers (ADD THIS ABOVE ALL tabs)
 # =========================================================
-def _norm01_rate(x):
-    # 0.32, 32, "32%" -> 0~1
-    v = normalize_ratio(x)
-    return v
 
 def _row_for_key(df_: pd.DataFrame, col_key: str, key: str) -> Optional[pd.Series]:
     if df_ is None or df_.empty:
@@ -1223,112 +1262,67 @@ def _row_for_key(df_: pd.DataFrame, col_key: str, key: str) -> Optional[pd.Serie
     return sub.iloc[0]
 
 def _estimate_now_and_roi(
-    row_: pd.Series,
-    perf_cols_: List[str],
-    budget: Optional[float] = None,
-    aov: Optional[float] = None,
+    budget: float,
+    aov: float,
+    cpc: float,
+    cvr: float,
+    ad_contrib: float,
+    month_growth: float = 0.0,
+    repurchase: float = 0.0,
+    ad_dependency: float = 0.0,
     months: int = 12,
-    col_m_growth: Optional[str] = None,
-    col_ad_contrib: Optional[str] = None,
-    col_repurchase: Optional[str] = None,
-    col_ad_dep: Optional[str] = None,
-    gross_margin_rate: float = 0.0,   # 0~1
-    **kwargs,  # ✅ 추가: 어떤 인자가 더 와도 TypeError 방지
+    gross_margin_rate: float = 0.0,
+    **kwargs,
 ):
     """
-    추천 카드용: 현재/고점 비교용 간이 추정 (방탄 버전)
-    - 호출부가 budget=..., total_budget=..., ad_spend=... 등으로 섞여 있어도 동작하도록 kwargs 허용
+    추천 비교용 추정치(방탄):
+    - budget/aov/cpc/cvr로 광고매출(ad_rev) 계산
+    - 광고기여율(ad_contrib)로 총매출(total_rev) 환산
+    - ROI는 마진기반 ROI(= (총매출*마진율 - 광고비)/광고비)
     """
-
-    # --- budget/aov fallback: 호출부에서 다른 이름으로 넘기는 경우 흡수 ---
-    if budget is None:
-        # 흔히 쓰는 대체 키들
-        for k in ["total_budget", "ad_total", "ad_spend", "ad_budget", "spend"]:
-            if k in kwargs and kwargs[k] is not None:
-                budget = float(kwargs[k])
-                break
-    if aov is None:
-        for k in ["avg_order_value", "selling_price", "price", "unit_price"]:
-            if k in kwargs and kwargs[k] is not None:
-                aov = float(kwargs[k])
-                break
-
     budget = float(budget or 0.0)
     aov = float(aov or 0.0)
+    cpc = float(cpc or 0.0)
+    cvr = float(cvr or 0.0)
 
-    # ---- rate getter (0~1) ----
-    def _get_rate(col):
-        if col and col in row_.index:
-            return normalize_ratio(row_.get(col))
-        return np.nan
+    ac = clamp01(normalize_ratio(ad_contrib), 0.6)
+    rep = clamp01(normalize_ratio(repurchase), 0.0)
 
-    m_growth = _get_rate(col_m_growth)
-    ad_contrib = _get_rate(col_ad_contrib)
-    repurchase = _get_rate(col_repurchase)
-    ad_dep = _get_rate(col_ad_dep)
+    # 성장률은 음수 포함 가능
+    g = to_float(month_growth, 0.0)
+    if abs(g) > 1.0:
+        g = g / 100.0
 
-    # defaults
-    if pd.isna(m_growth): m_growth = 0.0
-    if pd.isna(ad_contrib): ad_contrib = 0.6
-    if pd.isna(repurchase): repurchase = 0.2
-    if pd.isna(ad_dep): ad_dep = 0.6
+    addep = clamp01(normalize_ratio(ad_dependency), ac)
 
-    # ---- scenario KPI blend ----
-    scn_cpc, scn_cvr = blended_cpc_cvr(row_, perf_cols_)
-    cpc = float(scn_cpc) if (scn_cpc is not None and scn_cpc > 0) else 300.0
-    cvr = float(scn_cvr) if (scn_cvr is not None and scn_cvr > 0) else 0.02
-
-    now_ad = budget
-
-    # 광고비 -> direct 매출
-    clicks = now_ad / cpc if cpc > 0 else 0.0
+    # 광고 -> 광고기여매출
+    clicks = (budget / cpc) if cpc > 0 else 0.0
     orders = clicks * cvr
-    direct_rev = orders * aov
+    ad_rev = orders * aov
 
-    # 광고기여율로 전체매출 환산
-    total_rev = direct_rev / max(float(ad_contrib), 1e-6)
+    # 총매출 환산
+    total_rev = ad_rev / max(ac, 1e-6)
 
-    # 재구매 누적 반영(완만하게)
-    rep_mult = 1.0 + float(repurchase) * max(0, months - 1) * 0.15
+    # 재구매 완만 반영(누적)
+    rep_mult = 1.0 + rep * max(0, months - 1) * 0.15
     total_rev *= rep_mult
 
-    # ROI(매출기준)
-    now_roi = (total_rev - now_ad) / now_ad if now_ad > 0 else np.nan
-
-    # 이익기반 ROI(선택)
+    roas = (total_rev / budget) if budget > 0 else np.nan
     gm = float(gross_margin_rate or 0.0)
-    now_profit = total_rev * gm - now_ad
-    now_profit_roi = (now_profit / now_ad) if now_ad > 0 else np.nan
+    roi = ((total_rev * gm - budget) / budget) if budget > 0 else np.nan
 
-    # ---- peak ----
-    g = float(m_growth)
-    peak_rev = total_rev * ((1.0 + g) ** max(0, months - 1))
-    peak_ad = now_ad * ((1.0 + g * float(ad_dep)) ** max(0, months - 1))
-
-    peak_roi = (peak_rev - peak_ad) / peak_ad if peak_ad > 0 else np.nan
-    peak_profit = peak_rev * gm - peak_ad
-    peak_profit_roi = (peak_profit / peak_ad) if peak_ad > 0 else np.nan
+    # 고점(참고용) — 카드에는 안 써도 비교용으로 남김
+    peak_total_rev = total_rev * ((1.0 + g) ** max(0, months - 1))
+    peak_budget = budget * ((1.0 + g * addep) ** max(0, months - 1))
 
     return {
-        "now_revenue": float(total_rev),
-        "now_ad": float(now_ad),
-        "now_roi": float(now_roi) if not pd.isna(now_roi) else np.nan,
-        "now_profit": float(now_profit),
-        "now_profit_roi": float(now_profit_roi) if not pd.isna(now_profit_roi) else np.nan,
-        "peak_revenue": float(peak_rev),
-        "peak_ad": float(peak_ad),
-        "peak_roi": float(peak_roi) if not pd.isna(peak_roi) else np.nan,
-        "peak_profit": float(peak_profit),
-        "peak_profit_roi": float(peak_profit_roi) if not pd.isna(peak_profit_roi) else np.nan,
-        "assumptions": [
-            f"월성장률 {m_growth:.1%}",
-            f"광고기여율 {ad_contrib:.0%}",
-            f"재구매율 {repurchase:.0%}",
-            f"광고의존도 {ad_dep:.0%}",
-            f"CPC≈{cpc:,.0f} / CVR≈{cvr*100:.1f}%",
-        ],
-        "cpc": float(cpc),
-        "cvr": float(cvr),
+        "total_rev": float(total_rev),
+        "ad_rev": float(ad_rev),
+        "budget": float(budget),
+        "roas": float(roas) if not pd.isna(roas) else np.nan,
+        "roi": float(roi) if not pd.isna(roi) else np.nan,
+        "peak_total_rev": float(peak_total_rev),
+        "peak_budget": float(peak_budget),
     }
 
 # =========================
@@ -2118,9 +2112,13 @@ with tab_rec:
             aov=float(aov),
             cpc=float(scn_cpc),
             cvr=float(scn_cvr),
-            ad_contrib=float(ac if not np.isnan(ac) else 0.0),
+            ad_contrib=float(ac if not np.isnan(ac) else 0.6),
+            month_growth=float(mg if not np.isnan(mg) else 0.0),
+            repurchase=float(rep if not np.isnan(rep) else 0.0),
+            ad_dependency=float(addep if not np.isnan(addep) else float(ac if not np.isnan(ac) else 0.6)),
+            months=12,
             gross_margin_rate=float(gross_margin_pct),
-        )
+            )
         ceil = _ceiling_index(
             month_growth=float(mg if not np.isnan(mg) else 0.0),
             repurchase=float(rep if not np.isnan(rep) else 0.0),
@@ -2191,9 +2189,14 @@ with tab_rec:
             aov=float(aov),
             cpc=float(scn_cpc),
             cvr=float(scn_cvr),
-            ad_contrib=float(ac if not np.isnan(ac) else 0.0),
+            ad_contrib=float(ac if not np.isnan(ac) else 0.6),
+            month_growth=float(mg if not np.isnan(mg) else 0.0),
+            repurchase=float(rep if not np.isnan(rep) else 0.0),
+            ad_dependency=float(addep if not np.isnan(addep) else float(ac if not np.isnan(ac) else 0.6)),
+            months=12,
             gross_margin_rate=float(gross_margin_pct),
-        )
+            )
+
         ceil = _ceiling_index(
             month_growth=float(mg if not np.isnan(mg) else 0.0),
             repurchase=float(rep if not np.isnan(rep) else 0.0),
