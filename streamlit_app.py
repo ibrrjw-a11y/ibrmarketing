@@ -1826,76 +1826,305 @@ with tab_brand:
         disp["누적판매(개)"] = df_fore["누적판매(개)"].map(lambda x: f"{x:,.0f}")
         st.dataframe(disp, use_container_width=True, hide_index=True)
 
-# =========================================================
-# TAB: Recommendation Engine (복원/강화)
-# =========================================================
+# =========================
+# Tab: Recommendation (Classic Top3 + Compare Panel)
+# =========================
 with tab_rec:
     st.markdown("## 추천 엔진")
-    st.markdown("<div class='smallcap'>backdata(채널/믹스/성장/기여/재구매/의존도 + ST/DRV/CAT/POS) 기반으로 체크리스트 점수화 → Top3 전략 추천</div>", unsafe_allow_html=True)
+    st.markdown("<div class='smallcap'>예전 방식 Top3 추천 + ROI/고점(성장·재구매·광고의존) 비교</div>", unsafe_allow_html=True)
     st.divider()
 
-    # features
-    feat = build_checklist_features(
-        row=row,
-        rev_share=rev_share,
-        media_share=media_share,
-        cols=cols,
-        df_cols={"stage": stage_col, "drv": drv_col, "cat": cat_col, "pos": pos_col},
-    )
+    # ---- backdata의 성장/재구매/광고 관련 컬럼 자동 탐지 ----
+    col_m_growth = _get_rate_col(df, ["월 성장률", "월성장률", "monthly_growth", "MoM 성장률", "MoM"])
+    col_ad_contrib = _get_rate_col(df, ["광고기여율", "광고 기여율", "ad_contrib", "ad_contribution", "광고기여"])
+    col_repurchase = _get_rate_col(df, ["재구매율", "재구매", "repurchase", "repeat_rate"])
+    col_ad_dep = _get_rate_col(df, ["광고의존도", "광고 의존도", "ad_dependency", "ads_dependency", "ad_dep"])
 
-    # show feature summary
-    f1, f2, f3, f4 = st.columns(4)
-    f1.metric("자사몰 비중", fmt_pct(feat["own"]*100,1))
-    f2.metric("스마트스토어 비중", fmt_pct(feat["smart"]*100,1))
-    f3.metric("쿠팡 비중", fmt_pct(feat["coupang"]*100,1))
-    f4.metric("광고의존도", fmt_pct(feat["ad_dependency"]*100,1))
-    f5, f6, f7, f8 = st.columns(4)
-    f5.metric("월 성장률", fmt_pct(feat["month_growth"]*100,1))
-    f6.metric("광고기여율", fmt_pct(feat["ad_contrib"]*100,1))
-    f7.metric("재구매율", fmt_pct(feat["repurchase"]*100,1))
-    f8.metric("믹스(퍼포)", fmt_pct(feat["mix_perf"]*100,1))
+    # ---- 입력(예전 느낌 유지하되, 비교에 필요한 최소 입력만 추가) ----
+    with st.expander("입력 조건", expanded=True):
+        c1, c2, c3, c4 = st.columns(4)
 
-    st.caption(f"ST: {feat['stage'] or '-'} / DRV: {feat['driver'] or '-'} / CAT: {feat['category'] or '-'} / POS: {feat['position'] or '-'}")
+        with c1:
+            operator = st.selectbox(
+                "운영 주체",
+                ["내부브랜드 운영자", "브랜드사 운영자(클라이언트)", "대행사(마케팅만)"],
+                key="rec_operator",
+            )
+            stage_in = st.selectbox("단계(ST)", ["(무관)"] + uniq_vals(stage_col), key="rec_stage_in") if stage_col in df.columns else "(무관)"
+            cat_in = st.selectbox("카테고리", ["(무관)"] + uniq_vals(cat_col), key="rec_cat_in") if cat_col in df.columns else "(무관)"
 
-    st.divider()
+        with c2:
+            pos_in = st.selectbox("가격 포지션(POS)", ["(무관)"] + uniq_vals(pos_col), key="rec_pos_in") if pos_col in df.columns else "(무관)"
+            drv_in = st.selectbox("드라이버(DRV)", ["(무관)"] + uniq_vals(drv_col), key="rec_drv_in") if drv_col in df.columns else "(무관)"
 
-    # main scoring engine
-    df_rec = recommend_top3_strategies(feat)
-    top3 = df_rec.head(3)
+        with c3:
+            sales_focus = st.selectbox(
+                "판매 중심 채널(브랜드사 중요 / 대행사는 참고만)",
+                ["(무관)", "자사몰", "스마트스토어", "쿠팡", "오프라인", "온라인(기타)"],
+                key="rec_sales_focus",
+            )
+            total_budget = st.number_input("총 광고예산(원)", value=50_000_000, step=1_000_000, min_value=1, key="rec_budget2")
 
-    st.markdown("### Top 3 전략(점수 기반)")
-    for i, r in top3.iterrows():
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.markdown(f"**#{i+1} {r['전략명']}**  · 점수: **{int(r['점수'])}**")
-        st.caption(r["설명"])
-        if r["근거(룰/보너스)"]:
-            st.caption("근거: " + r["근거(룰/보너스)"])
-        st.markdown(r["권장 액션"])
-        st.markdown("</div>", unsafe_allow_html=True)
+        with c4:
+            # 비교/ROI에 필요한 최소 입력(삭제 아님: 추천엔진에만 추가)
+            aov = st.number_input("객단가(AOV) (원)", value=50_000, step=1_000, key="rec_aov")
+            gross_margin_pct = st.number_input("마진율(%) (ROI 계산용)", value=50.0, step=1.0, key="rec_gm") / 100.0
+            use_scn_kpi = st.toggle("시나리오 KPI 자동 사용(권장)", value=True, key="rec_use_kpi")
+            run = st.button("Top3 추천 계산", use_container_width=True, key="rec_run2")
 
-    with st.expander("전체 전략 점수표(디버그/검증용)", expanded=False):
-        st.dataframe(df_rec, use_container_width=True, hide_index=True)
+    if not run:
+        st.info("입력 조건을 설정하고 **Top3 추천 계산**을 누르세요.")
+        st.stop()
 
-    st.divider()
-    st.markdown("### 판매채널 트리맵(브랜드사 중요)")
-    fig_rev_tm = treemap_revenue(rev_share, title="매출 채널 구성(트리맵)")
-    if fig_rev_tm:
-        st.plotly_chart(fig_rev_tm, use_container_width=True, key=f"rev_tm_rec_{scenario_key}")
-    else:
-        st.info("매출 채널 비중이 비어있습니다(*매출비중 컬럼 확인).")
+    # ---- 후보 시나리오 구성(전체 df 기준, 입력조건 반영) ----
+    cand = df.copy()
 
-    st.divider()
-    st.markdown("### (Fallback) 기존 단순 룰 추천(비교용)")
-    rec_fb = strategy_recommendation_fallback(rev_share)
-    st.markdown(f"**유형:** {rec_fb['title']}")
-    st.caption("근거(상위 채널 비중): " + (" / ".join(rec_fb["evidence"]) if rec_fb["evidence"] else "-"))
-    c1, c2, c3 = st.columns(3)
-    for idx, (k, why) in enumerate(rec_fb["priority"][:3]):
-        with [c1, c2, c3][idx]:
+    if stage_col in cand.columns and stage_in != "(무관)":
+        cand = cand[cand[stage_col].astype(str) == stage_in]
+    if cat_col in cand.columns and cat_in != "(무관)":
+        cand = cand[cand[cat_col].astype(str) == cat_in]
+    if pos_col in cand.columns and pos_in != "(무관)":
+        cand = cand[cand[pos_col].astype(str) == pos_in]
+    if drv_col in cand.columns and drv_in != "(무관)":
+        cand = cand[cand[drv_col].astype(str) == drv_in]
+
+    if cand.empty:
+        st.warning("조건에 맞는 후보가 없어 전체 시나리오에서 추천합니다.")
+        cand = df.copy()
+
+    # ---- 스코어링(예전 감성 유지: 채널/미디어 정합 + 메타데이터 보너스) ----
+    #   - 브랜드사는 판매채널 가중치 ↑
+    #   - 대행사는 판매채널 가중치 ↓ (참고만)
+    W_META = 25.0
+    W_SALES = 35.0 if operator != "대행사(마케팅만)" else 15.0
+    W_MEDIA = 25.0
+    W_RISK = 15.0  # 광고의존/광고기여율(효율) 가벼운 반영(비교패널이 메인)
+
+    target_vec = {"자사몰":0, "스마트스토어":0, "쿠팡":0, "오프라인":0, "온라인(기타)":0}
+    if sales_focus != "(무관)":
+        target_vec[sales_focus] = 1.0
+    target_vec = normalize_shares(target_vec)
+
+    rows = []
+    for _, r in cand.iterrows():
+        # shares
+        rs = build_rev_shares(r, rev_cols)
+        ms = build_media_shares(r, perf_cols, viral_cols, brand_cols)
+
+        # 1) 메타데이터 매칭
+        meta_score = 0.0
+        if stage_col in df.columns and stage_in != "(무관)" and str(r.get(stage_col)) == stage_in: meta_score += 1.0
+        if cat_col in df.columns and cat_in != "(무관)" and str(r.get(cat_col)) == cat_in: meta_score += 1.0
+        if pos_col in df.columns and pos_in != "(무관)" and str(r.get(pos_col)) == pos_in: meta_score += 1.0
+        if drv_col in df.columns and drv_in != "(무관)" and str(r.get(drv_col)) == drv_in: meta_score += 1.0
+        meta_score = meta_score / 4.0  # 0~1
+
+        # 2) 판매채널 정합(코사인 유사도)
+        sales_sim = _cosine(_rev_bucket_vec(rs), target_vec) if sales_focus != "(무관)" else 0.5
+
+        # 3) 미디어 정합(판매포커스별 “있어야 할 매체” 가산)
+        perf = ms.get("perf", {})
+        viral = ms.get("viral", {})
+        # 키워드 기반 간단 가산(기존 삭제 아님: 비교패널이 최종 판단)
+        media_score = 0.5
+        if sales_focus == "자사몰":
+            media_score = np.clip(_media_kw_share(perf, ["메타"]) * 2.0 + _media_kw_share(perf, ["구글", "Google"]) * 1.0, 0, 1)
+        elif sales_focus == "스마트스토어":
+            media_score = np.clip(_media_kw_share(perf, ["네이버", "SA"]) * 2.0 + _media_kw_share(perf, ["GFA","GDN","DA"]) * 1.0, 0, 1)
+        elif sales_focus == "쿠팡":
+            media_score = np.clip(_media_kw_share(perf, ["외부몰PA","쿠팡","PA"]) * 2.2 + _media_kw_share(perf, ["메타"]) * 1.0, 0, 1)
+        else:
+            media_score = 0.6 + np.clip(ms["group"].get("퍼포먼스",0)*0.4, 0, 0.4)
+
+        # 4) 리스크/효율(가볍게만 점수에 반영하고, 비교패널에서 상세 확인)
+        ad_dep = _norm01_rate(r.get(col_ad_dep)) if col_ad_dep else np.nan
+        ad_contrib = _norm01_rate(r.get(col_ad_contrib)) if col_ad_contrib else np.nan
+        risk_score = 0.5
+        if not np.isnan(ad_dep):
+            risk_score = 1.0 - ad_dep  # 의존도 낮을수록 좋음
+        if not np.isnan(ad_contrib):
+            # 광고기여율이 너무 높으면 “광고 없으면 매출 유지 어려움” -> 가산 낮춤
+            risk_score = (risk_score * 0.6) + ((1.0 - ad_contrib) * 0.4)
+
+        score = (meta_score * W_META) + (sales_sim * W_SALES) + (float(media_score) * W_MEDIA) + (float(risk_score) * W_RISK)
+
+        rows.append({
+            "scenario_key": str(r[col_scn]).strip(),
+            "scenario_disp": str(r[col_disp]).strip(),
+            "score": float(score),
+            "rev_share": rs,
+            "media_share": ms,
+            "row": r
+        })
+
+    rows = sorted(rows, key=lambda x: x["score"], reverse=True)
+    top = rows[:3]
+    top10 = rows[:10]
+
+    # ---- Top3 카드(예전처럼 3컬럼) ----
+    st.markdown("### Top3 추천")
+    cA, cB, cC = st.columns(3)
+
+    def _render_card(col, idx, item):
+        r = item["row"]
+        rs = item["rev_share"]
+        ms = item["media_share"]
+
+        # KPI (시나리오 KPI 있으면 사용, 없으면 현재 선택 시나리오 blended를 fallback)
+        scn_cpc, scn_cvr = blended_cpc_cvr(r, perf_cols)
+        if (not use_scn_kpi) or (scn_cpc is None) or (scn_cvr is None):
+            # fallback: 현재 선택 시나리오 KPI
+            fb_cpc, fb_cvr = blended_cpc_cvr(row, perf_cols)
+            scn_cpc = fb_cpc if fb_cpc is not None else 300.0
+            scn_cvr = fb_cvr if fb_cvr is not None else 0.02
+
+        # 광고기여/재구매/광고의존
+        mg = _norm01_rate(r.get(col_m_growth)) if col_m_growth else np.nan
+        ac = _norm01_rate(r.get(col_ad_contrib)) if col_ad_contrib else np.nan
+        rep = _norm01_rate(r.get(col_repurchase)) if col_repurchase else np.nan
+        addep = _norm01_rate(r.get(col_ad_dep)) if col_ad_dep else np.nan
+
+        est = _estimate_now_and_roi(
+            budget=float(total_budget),
+            aov=float(aov),
+            cpc=float(scn_cpc),
+            cvr=float(scn_cvr),
+            ad_contrib=float(ac if not np.isnan(ac) else 0.0),
+            gross_margin_rate=float(gross_margin_pct),
+        )
+        ceil = _ceiling_index(
+            month_growth=float(mg if not np.isnan(mg) else 0.0),
+            repurchase=float(rep if not np.isnan(rep) else 0.0),
+            ad_dependency=float(addep if not np.isnan(addep) else 0.0),
+        )
+
+        # 카드
+        with col:
             st.markdown("<div class='card'>", unsafe_allow_html=True)
-            st.markdown(f"**#{idx+1} {k}**")
-            st.caption(why)
+            st.markdown(f"### #{idx} {item['scenario_disp']}")
+            st.caption(item["scenario_key"])
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Score", f"{item['score']:.1f}")
+            m2.metric("예상 ROAS", f"{est['roas']:.2f}x")
+            m3.metric("고점지수", f"{ceil:.2f}")
+
+            m4, m5, m6 = st.columns(3)
+            m4.metric("예상 매출", fmt_won(est["total_rev"]))
+            m5.metric("광고매출", fmt_won(est["ad_rev"]))
+            m6.metric("ROI(마진)", "-" if np.isnan(est["roi"]) else f"{est['roi']*100:.0f}%")
+
+            st.markdown("<hr class='soft'/>", unsafe_allow_html=True)
+            # 근거 3줄(예전 스타일)
+            top_rev = sorted(_rev_bucket_vec(rs).items(), key=lambda x: x[1], reverse=True)[:2]
+            top_perf = sorted((ms.get("perf") or {}).items(), key=lambda x: x[1], reverse=True)[:2]
+            st.write("**요약 근거(3줄)**")
+            st.write(f"- 판매채널: " + ", ".join([f"{k} {v:.0%}" for k, v in top_rev if v > 0]) if top_rev else "-")
+            st.write(f"- 퍼포먼스: " + ", ".join([f"{k} {v:.0%}" for k, v in top_perf if v > 0]) if top_perf else "-")
+            st.write(f"- 성장/재구매/의존: "
+                     f"성장 {('-' if np.isnan(mg) else f'{mg*100:.1f}%')} / "
+                     f"재구매 {('-' if np.isnan(rep) else f'{rep*100:.0f}%')} / "
+                     f"광고의존 {('-' if np.isnan(addep) else f'{addep*100:.0f}%')}"
+                    )
+
+            # 선택 버튼(바로 사이드바 시나리오로 이동)
+            if st.button("이 시나리오로 선택", key=f"pick_{item['scenario_key']}"):
+                # sel_scn는 sidebar selectbox key
+                st.session_state["sel_scn"] = item["scenario_disp"]
+                st.rerun()
+
             st.markdown("</div>", unsafe_allow_html=True)
+
+    if len(top) >= 1: _render_card(cA, 1, top[0])
+    if len(top) >= 2: _render_card(cB, 2, top[1])
+    if len(top) >= 3: _render_card(cC, 3, top[2])
+
+    # ---- 비교 패널(여기서 “ROI 낮지만 고점 높은 것”까지 한눈에) ----
+    st.divider()
+    st.markdown("### 시나리오 비교(Top10)")
+    st.caption("‘지금 ROAS/ROI’ vs ‘고점(성장·재구매·광고의존)’을 동시에 보고 최종 선택하세요.")
+
+    cmp_rows = []
+    for item in top10:
+        r = item["row"]
+        scn_cpc, scn_cvr = blended_cpc_cvr(r, perf_cols)
+        if (not use_scn_kpi) or (scn_cpc is None) or (scn_cvr is None):
+            fb_cpc, fb_cvr = blended_cpc_cvr(row, perf_cols)
+            scn_cpc = fb_cpc if fb_cpc is not None else 300.0
+            scn_cvr = fb_cvr if fb_cvr is not None else 0.02
+
+        mg = _norm01_rate(r.get(col_m_growth)) if col_m_growth else np.nan
+        ac = _norm01_rate(r.get(col_ad_contrib)) if col_ad_contrib else np.nan
+        rep = _norm01_rate(r.get(col_repurchase)) if col_repurchase else np.nan
+        addep = _norm01_rate(r.get(col_ad_dep)) if col_ad_dep else np.nan
+
+        est = _estimate_now_and_roi(
+            budget=float(total_budget),
+            aov=float(aov),
+            cpc=float(scn_cpc),
+            cvr=float(scn_cvr),
+            ad_contrib=float(ac if not np.isnan(ac) else 0.0),
+            gross_margin_rate=float(gross_margin_pct),
+        )
+        ceil = _ceiling_index(
+            month_growth=float(mg if not np.isnan(mg) else 0.0),
+            repurchase=float(rep if not np.isnan(rep) else 0.0),
+            ad_dependency=float(addep if not np.isnan(addep) else 0.0),
+        )
+
+        cmp_rows.append({
+            "시나리오": item["scenario_disp"],
+            "키": item["scenario_key"],
+            "Score": item["score"],
+            "예상매출(총)": est["total_rev"],
+            "ROAS": est["roas"],
+            "ROI(마진)": est["roi"],
+            "고점지수": ceil,
+            "월성장률": mg,
+            "재구매율": rep,
+            "광고기여율": ac,
+            "광고의존도": addep,
+        })
+
+    df_cmp = pd.DataFrame(cmp_rows)
+    if df_cmp.empty:
+        st.info("비교할 후보가 없습니다.")
+    else:
+        # 보기 좋은 표시용
+        disp = df_cmp.copy()
+        disp["예상매출(총)"] = disp["예상매출(총)"].map(lambda x: f"{x:,.0f}")
+        disp["ROAS"] = disp["ROAS"].map(lambda x: f"{x:.2f}x")
+        disp["ROI(마진)"] = disp["ROI(마진)"].map(lambda x: "-" if (pd.isna(x) or np.isnan(x)) else f"{x*100:.0f}%")
+        disp["고점지수"] = disp["고점지수"].map(lambda x: f"{x:.2f}")
+        for c in ["월성장률","재구매율","광고기여율","광고의존도"]:
+            disp[c] = disp[c].map(lambda x: "-" if (pd.isna(x) or np.isnan(x)) else f"{x*100:.1f}%")
+
+        st.dataframe(
+            disp[["시나리오","Score","예상매출(총)","ROAS","ROI(마진)","고점지수","월성장률","재구매율","광고의존도","광고기여율"]],
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # 산점도: x=ROAS, y=고점지수, size=예상매출, 색=광고의존도(있으면)
+        plot_df = df_cmp.copy()
+        plot_df["광고의존도"] = plot_df["광고의존도"].fillna(0.0)
+        fig = px.scatter(
+            plot_df,
+            x="ROAS",
+            y="고점지수",
+            size="예상매출(총)",
+            color="광고의존도",
+            hover_name="시나리오",
+            hover_data=["키", "Score", "월성장률", "재구매율", "광고기여율"],
+            title="ROAS(현재 효율) vs 고점지수(성장·재구매·의존 리스크)"
+        )
+        fig.update_layout(height=420, margin=dict(t=50, b=10, l=10, r=10))
+        st.plotly_chart(fig, use_container_width=True, key="rec_compare_scatter")
+
+        # 최종 선택(테이블에서 바로)
+        pick = st.selectbox("비교 후 최종 선택", options=plot_df["시나리오"].tolist(), key="rec_final_pick")
+        if st.button("선택한 시나리오로 이동", key="rec_go_pick"):
+            st.session_state["sel_scn"] = pick
+            st.rerun()
 
 # =========================
 # Tab: Custom Scenario (기존 유지)
