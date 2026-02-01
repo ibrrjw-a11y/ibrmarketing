@@ -1279,27 +1279,167 @@ with tab_brand:
     if fig_rev_tm2:
         st.plotly_chart(fig_rev_tm2, use_container_width=True, key=f"rev_tm_brand_{scenario_key}")
 
-# =========================
-# Tab: Recommendation Engine
-# =========================
+# =========================================================
+# TAB 1) Recommendation Engine  (RESTORE CLASSIC)
+# =========================================================
 with tab_rec:
     st.markdown("## 추천 엔진")
-    st.markdown("<div class='smallcap'>backdata의 단계/카테고리/포지션/매출비중 기반으로 전략을 추천합니다.</div>", unsafe_allow_html=True)
-    st.divider()
+    st.markdown('<div class="smallcap">Top3 추천 (룰 기반 스코어링 + KPI 기반 예상 CAC)</div>', unsafe_allow_html=True)
 
-    reco = strategy_recommendation(rev_share)
+    # ---------- 입력 ----------
+    with st.expander("입력 조건", expanded=True):
+        c1, c2, c3 = st.columns(3)
 
-    st.markdown(
-        f"<div class='card'>"
-        f"<h3>추천 전략: {reco['title']}</h3>"
-        f"<div class='smallcap'>판단 근거(매출채널 Top): {' · '.join(reco['evidence']) if reco['evidence'] else '데이터 부족'}</div>"
-        f"<hr class='soft'/>"
-        + "".join([f"<div>• <b>{a}</b> — {b}</div>" for a,b in reco["priority"]])
-        + f"<hr class='soft'/>"
-        f"<div class='smallcap'>메모: {reco['note']}</div>"
-        f"</div>",
-        unsafe_allow_html=True
-    )
+        with c1:
+            operator = st.selectbox(
+                "운영 주체",
+                ["내부브랜드 운영자", "브랜드사 운영자(클라이언트)", "대행사(마케팅만)"],
+                key="rec_operator",
+            )
+            stage = st.selectbox("단계(ST)", ["NEW", "EARLY", "GROW", "MATURE"], key="rec_stage")
+            category = st.selectbox("카테고리(CAT)", cat_options, key="rec_cat")
+
+        with c2:
+            position = st.selectbox("가격 포지셔닝(POS)", ["L", "M", "P"], key="rec_pos")
+            sales_focus_channel = st.selectbox(
+                "판매 중심 채널",
+                ["자사몰 중심", "온라인 중심", "홈쇼핑 중심", "공구 중심", "B2B 중심"],
+                key="rec_sales",
+            )
+            online_market_focus = None
+            if sales_focus_channel == "온라인 중심":
+                online_market_focus = st.selectbox(
+                    "온라인 마켓 포커스(옵션)",
+                    [None, "쿠팡 중심", "스마트스토어 중심"],
+                    format_func=lambda x: "미지정(자동)" if x is None else x,
+                    key="rec_online_focus",
+                )
+
+        with c3:
+            no_comp = st.toggle("경쟁키워드 판매의도 없음", value=True, key="rec_no_comp")
+            competitor_keyword_level = None
+            if not no_comp:
+                competitor_keyword_level = st.selectbox(
+                    "경쟁키워드 검색량 구간",
+                    ["매우낮음(~3,000)", "낮음(3,000~10,000)", "중간(10,000~20,000)", "높음(20,000~30,000)", "매우높음(35,000~)"],
+                    key="rec_comp_lv",
+                )
+
+            brand_keyword_level = st.selectbox(
+                "브랜드 키워드(인지도) 검색량 구간",
+                ["매우낮음(~300)", "낮음(300~1,000)", "중간(1,000~4,000)", "높음(4,000~8,000)", "매우높음(8,000~)"],
+                key="rec_brand_lv",
+            )
+            target_age = st.selectbox("주요 타겟 연령대", ["10대", "20대", "30대", "40대", "50대+"], key="rec_age")
+
+        c4, c5, c6 = st.columns([1, 1, 1])
+        with c4:
+            total_ad_budget_krw = st.number_input("총 광고예산(원)", value=50_000_000, step=1_000_000, min_value=1, key="rec_budget")
+        with c5:
+            include_viral_if_missing = st.toggle("바이럴 KPI 없더라도 전환 포함(권장X)", value=False, key="rec_include_viral")
+        with c6:
+            run = st.button("Top3 추천 계산", use_container_width=True, key="rec_run")
+
+    st.markdown("---")
+
+    if not run:
+        st.info("입력 조건을 설정하고 **Top3 추천 계산**을 누르세요.")
+        st.stop()
+
+    payload = {
+        "operator": operator,
+        "stage": stage,
+        "category": category,
+        "position": position,
+        "sales_focus_channel": sales_focus_channel,
+        "online_market_focus": online_market_focus,
+        "no_competitor_intent": bool(no_comp),
+        "competitor_keyword_level": competitor_keyword_level,
+        "brand_keyword_level": brand_keyword_level,
+        "target_age": target_age,
+        "total_ad_budget_krw": float(total_ad_budget_krw),
+        "include_viral_conversions_if_kpi_missing": bool(include_viral_if_missing),
+    }
+
+    out = recommend_top3_allinone(payload=payload, df_all=df_all, key_to_label=key_to_label)
+    recs = out.get("recommendations", [])
+
+    # ---------- 상단 KPI 요약 ----------
+    k1, k2, k3 = st.columns(3)
+    k1.metric("후보 전략 수", f"{out.get('candidate_count', 0):,} 개")
+    k2.metric("추천 결과", f"{len(recs):,} 개")
+    k3.metric("예산(입력)", fmt_won(total_ad_budget_krw))
+
+    if not recs:
+        st.warning("추천 결과가 없습니다. (시나리오 키 규칙/카테고리 파싱/데이터 확인 필요)")
+        st.stop()
+
+    # ---------- (클래식) Top3: 3컬럼 고정 ----------
+    cols = st.columns(3)
+    for i in range(3):
+        if i >= len(recs):
+            continue
+        r = recs[i]
+        with cols[i]:
+            st.markdown("<div class='card'>", unsafe_allow_html=True)
+
+            st.markdown(f"### #{i+1} {r['scenario_label']}")
+            st.caption(r["scenario_key"])
+
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Score", f"{r['score']:.1f}")
+            m2.metric("예상 CAC", fmt_won(r["expected_metrics"]["expected_CAC"]))
+            m3.metric("예상 전환", f"{r['expected_metrics']['expected_conversions']:.1f}")
+
+            st.markdown("<hr class='soft'/>", unsafe_allow_html=True)
+            st.write("**요약 근거(3줄)**")
+            for line in r["why"]:
+                st.write(f"- {line}")
+
+            # 예전 느낌 유지: 상세는 접기(옵션)
+            with st.expander("상세 보기(믹스/기여)", expanded=False):
+                rowdf2 = df_all[df_all["시나리오명"].astype(str).str.strip() == str(r["scenario_key"]).strip()]
+                row0 = rowdf2.iloc[0] if not rowdf2.empty else None
+
+                # 미디어 기여(클릭/전환) 테이블만 간단히
+                contrib = r["expected_metrics"].get("media_contrib", [])
+                if contrib:
+                    cd = pd.DataFrame(contrib)
+                    cd["budget"] = cd["budget"].map(lambda x: f"{x:,.0f}")
+                    cd["CPC"] = cd["CPC"].map(lambda x: "-" if pd.isna(x) or x is None else f"{x:,.0f}")
+                    cd["clicks"] = cd["clicks"].map(lambda x: f"{x:,.0f}")
+                    cd["conversions"] = cd["conversions"].map(lambda x: f"{x:,.1f}")
+                    cd = cd.rename(columns={"channel":"채널", "budget":"예산", "CPC":"CPC", "clicks":"클릭", "conversions":"전환", "note":"비고"})
+                    st.dataframe(cd[["채널","예산","CPC","클릭","전환","비고"]], use_container_width=True, hide_index=True)
+
+                # 도넛은 과도하면 예전 느낌 깨져서, 필요하면 여기서만 1개 정도
+                adg_r = build_media_grouped_from_row(row0)
+                gw_r = adg_r.get("_group_weights", {"performance": 0, "viral": 0, "brand": 0})
+                st.plotly_chart(
+                    donut_chart(["퍼포먼스", "바이럴", "브랜드"],
+                                [gw_r["performance"], gw_r["viral"], gw_r["brand"]],
+                                title="그룹 구성(100%)", height=240),
+                    use_container_width=True,
+                    key=f"rec_classic_group_{i}"
+                )
+
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    # ---------- (옵션) 아래에 Top10 표로 한 번 더 ----------
+    with st.expander("전체 후보 점수표(Top10)", expanded=False):
+        rows = []
+        for r in out.get("recommendations", []):
+            rows.append({
+                "전략": r["scenario_label"],
+                "키": r["scenario_key"],
+                "점수": r["score"],
+                "예상CAC": r["expected_metrics"]["expected_CAC"],
+                "예상전환": r["expected_metrics"]["expected_conversions"],
+            })
+        dfv = pd.DataFrame(rows)
+        if not dfv.empty:
+            dfv["예상CAC"] = dfv["예상CAC"].map(fmt_won)
+            st.dataframe(dfv, use_container_width=True, hide_index=True)
 
 # =========================
 # Tab: Custom Scenario (NEW)
