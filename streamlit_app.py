@@ -152,6 +152,29 @@ def fmt_won(x) -> str:
         return f"{float(x):,.0f} 원"
     except Exception:
         return "-"
+def fmt_won_compact(x) -> str:
+    """
+    큰 숫자 카드에서 글씨가 짤리는 문제 해결용(축약 표기).
+    - 1,234 -> 1,234원
+    - 12,345,678 -> 1,235만원
+    - 1,234,567,890 -> 12.3억원
+    """
+    try:
+        if x is None or (isinstance(x, float) and np.isnan(x)):
+            return "-"
+        v = float(x)
+
+        av = abs(v)
+        sign = "-" if v < 0 else ""
+
+        if av < 10_000:
+            return f"{v:,.0f} 원"
+        if av < 100_000_000:  # 1억 미만: 만원 단위
+            return f"{sign}{av/10_000:,.0f} 만원"
+        # 1억 이상: 억원 단위 (소수 1자리)
+        return f"{sign}{av/100_000_000:,.1f} 억원"
+    except Exception:
+        return "-"
 
 def fmt_pct(x, digits=1) -> str:
     try:
