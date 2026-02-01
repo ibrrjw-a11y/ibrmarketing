@@ -1358,22 +1358,68 @@ tab_guide, tab_agency, tab_brand, tab_rec, tab_custom, tab_plan = st.tabs(
 with tab_guide:
     st.markdown("## 사용 가이드")
     st.markdown(
-        """
+    """
 <div class="card">
-<h3>이 시뮬레이터는 무엇을 하나요?</h3>
-<hr class="soft"/>
-<ul>
-  <li><b>시나리오(backdata)</b>를 선택하면, 해당 시나리오의 <b>매출 채널 비중</b>과 <b>미디어 믹스 비중</b>을 불러옵니다.</li>
-  <li><b>대행</b> 탭: 광고비↔매출을 양방향으로 산출(광고기여율/재구매율 반영). 내부용은 <b>수수료/바이럴마진/인건비</b>까지 손익 계산.</li>
-  <li><b>브랜드사</b> 탭: 외부용(대략 전망 + 트리맵), 내부용(채널별 월매출 + 필요광고비 + 마진/인건비).</li>
-  <li><b>추천엔진</b> 탭: backdata 기반 체크리스트 점수화로 Top3 전략 추천(기존 단순 룰은 fallback).</li>
-</ul>
-<hr class="soft"/>
-<div class="smallcap">※ 입력 기반 시뮬레이션이며 실제 성과는 운영/상품/시즌 요인에 따라 달라질 수 있습니다.</div>
+  <h3>이 시뮬레이터는 무엇을 하나요?</h3>
+  <hr class="soft"/>
+  <ul>
+    <li><b>시나리오(backdata)</b>를 선택하면, 해당 시나리오의 <b>매출 채널 비중</b>과 <b>미디어 믹스 비중</b>을 불러옵니다.</li>
+    <li><b>대행</b> 탭: 광고비↔매출을 양방향으로 산출(<b>광고기여율/재구매율</b> 반영). 내부용은 <b>수수료/페이백/바이럴마진/인건비</b>까지 손익 계산.</li>
+    <li><b>브랜드사</b> 탭: 외부용(대략 전망 + 트리맵), 내부용(채널별 월매출 + 필요광고비 + 원가/물류/마진/인건비).</li>
+    <li><b>추천엔진</b> 탭: 시나리오 Top3 추천 + <b>현재 효율(ROAS/ROI)</b> vs <b>고점(성장/재구매/광고의존)</b> 비교로 최종 선택.</li>
+  </ul>
+
+  <hr class="soft"/>
+
+  <h3>지표/산식 설명</h3>
+  <ul>
+    <li><b>AOV</b> = 객단가(평균 주문금액)</li>
+    <li><b>CPC</b> = 클릭당 비용(원)</li>
+    <li><b>CVR</b> = 전환율(주문/클릭)</li>
+    <li><b>광고기여율</b> = 전체매출 중 광고가 기여한 비중(0~1)</li>
+    <li><b>재구매율</b> = 전체주문 중 재구매 주문 비중(0~1, 표시용/추정)</li>
+    <li><b>월성장률</b> = 월 기준 매출 성장률(음수 가능)</li>
+    <li><b>광고의존도</b> = 성장 시 광고비 증가 민감도(0~1, 높을수록 성장에 광고비가 더 따라붙음)</li>
+  </ul>
+
+  <hr class="soft"/>
+
+  <h3>핵심 계산 로직(요약)</h3>
+  <ul>
+    <li><b>주문수</b> = 매출 ÷ AOV</li>
+    <li><b>광고비 → 매출</b><br/>
+      클릭수 = 광고비 ÷ CPC<br/>
+      광고주문수 = 클릭수 × CVR<br/>
+      광고기여매출 = 광고주문수 × AOV<br/>
+      전체매출 = 광고기여매출 ÷ 광고기여율
+    </li>
+    <li><b>매출 → 필요 광고비</b><br/>
+      광고기여매출 = 전체매출 × 광고기여율<br/>
+      광고주문수 = 광고기여매출 ÷ AOV<br/>
+      클릭수 = 광고주문수 ÷ CVR<br/>
+      필요 광고비 = 클릭수 × CPC
+    </li>
+    <li><b>ROAS</b> = 전체매출 ÷ 광고비</li>
+    <li class="smallcap">브랜드 내부 탭은 추가로 원가/물류/고정비(인건비 포함)를 반영해 영업이익을 계산합니다.</li>
+  </ul>
+
+  <hr class="soft"/>
+
+  <h3>고점지수란?</h3>
+  <ul>
+    <li>추천엔진에서 “<b>현재 효율(ROAS/ROI)</b>”과 “<b>성장 잠재력</b>”을 함께 비교하기 위한 보조 지표입니다.</li>
+    <li>구성 요소: <b>월성장률</b>, <b>재구매율</b>, <b>광고의존도</b></li>
+    <li class="smallcap">고점지수 산식은 코드의 <code>_ceiling_index()</code>를 그대로 따릅니다(설명용).</li>
+  </ul>
+
+  <hr class="soft"/>
+
+  <div class="smallcap">※ 입력 기반 시뮬레이션이며 실제 성과는 운영/상품/시즌 요인에 따라 달라질 수 있습니다.</div>
 </div>
-        """,
-        unsafe_allow_html=True
-    )
+    """,
+    unsafe_allow_html=True
+)
+
 
 # =========================
 # Editors
@@ -2156,9 +2202,10 @@ with tab_rec:
             m3.metric("고점지수", f"{ceil:.2f}")
 
             m4, m5, m6 = st.columns(3)
-            m4.metric("예상 매출", fmt_won(est["total_rev"]))
-            m5.metric("광고매출", fmt_won(est["ad_rev"]))
+            m4.metric("예상 매출", fmt_won_compact(est["total_rev"]))
+            m5.metric("광고매출", fmt_won_compact(est["ad_rev"]))
             m6.metric("ROI(마진)", "-" if np.isnan(est["roi"]) else f"{est['roi']*100:.0f}%")
+            st.caption(f"풀값: 예상매출 {fmt_won(est['total_rev'])} / 광고매출 {fmt_won(est['ad_rev'])}")
 
             st.markdown("<hr class='soft'/>", unsafe_allow_html=True)
             # 근거 3줄(예전 스타일)
