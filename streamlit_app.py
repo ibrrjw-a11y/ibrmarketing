@@ -1222,17 +1222,100 @@ def _row_for_key(df_: pd.DataFrame, col_key: str, key: str) -> Optional[pd.Serie
         return None
     return sub.iloc[0]
 
-TypeError: This app has encountered an error. The original error message is redacted to prevent data leaks. Full error details have been recorded in the logs (if you're on Streamlit Cloud, click on 'Manage app' in the lower right of your app).
-Traceback:
-File "/mount/src/ibrmarketing/streamlit_app.py", line 2146, in <module>
-    if len(top) >= 1: _render_card(cA, 1, top[0])
-                      ~~~~~~~~~~~~^^^^^^^^^^^^^^^
-File "/mount/src/ibrmarketing/streamlit_app.py", line 2096, in _render_card
-    est = _estimate_now_and_roi(
-        budget=float(total_budget),
-    ...<4 lines>...
-        gross_margin_rate=float(gross_margin_pct),
-    )
+def _estimate_now_and_roi(
+    row_: pd.Series,
+    perf_cols_: List[str],
+    budget: float,
+    aov: float,
+    months: int = 12,
+    col_m_growth: Optional[str] = None,
+    col_ad_contrib: Optional[str] = None,
+    col_repurchase: Optional[str] = None,
+    col_ad_dep: Optional[str] = None,
+    gross_margin_rate: float = 0.0,   # 0~1
+):
+    """
+    추천 카드용: 현재/고점 비교용 간이 추정
+    - budget: 현재 월(or 기준기간) 광고비
+    - aov: 객단가
+    - gross_margin_rate: 매출총이익률(0~1). ROI 대신 '이익기반 ROI'도 보여주려면 사용.
+    """
+
+    # ---- rates 0~1 ----
+    def _get_rate(col):
+        if col and col in row_.index:
+            return normalize_ratio(row_.get(col))
+        return np.nan
+
+    m_growth = _get_rate(col_m_growth)
+    ad_contrib = _get_rate(col_ad_contrib)
+    repurchase = _get_rate(col_repurchase)
+    ad_dep = _get_rate(col_ad_dep)
+
+    # defaults (중립값)
+    if pd.isna(m_growth): m_growth = 0.0
+    if pd.isna(ad_contrib): ad_contrib = 0.6
+    if pd.isna(repurchase): repurchase = 0.2
+    if pd.isna(ad_dep): ad_dep = 0.6
+
+    # ---- scenario KPI blend ----
+    scn_cpc, scn_cvr = blended_cpc_cvr(row_, perf_cols_)
+    cpc = float(scn_cpc) if (scn_cpc is not None and scn_cpc > 0) else 300.0
+    cvr = float(scn_cvr) if (scn_cvr is not None and scn_cvr > 0) else 0.02
+
+    now_ad = float(budget or 0.0)
+
+    # 광고비 -> direct 매출
+    clicks = now_ad / cpc if cpc > 0 else 0.0
+    orders = clicks * cvr
+    direct_rev = orders * float(aov)
+
+    # 광고기여율로 전체매출 환산
+    total_rev = direct_rev / max(float(ad_contrib), 1e-6)
+
+    # 재구매 누적 반영(완만하게)
+    rep_mult = 1.0 + float(repurchase) * max(0, months - 1) * 0.15
+    total_rev *= rep_mult
+
+    # ROI(매출기준)
+    now_roi = (total_rev - now_ad) / now_ad if now_ad > 0 else np.nan
+
+    # 이익기반 ROI(선택): (매출*마진 - 광고비)/광고비
+    gm = float(gross_margin_rate or 0.0)
+    now_profit = total_rev * gm - now_ad
+    now_profit_roi = (now_profit / now_ad) if now_ad > 0 else np.nan
+
+    # ---- peak ----
+    g = float(m_growth)
+    peak_rev = total_rev * ((1.0 + g) ** max(0, months - 1))
+    peak_ad = now_ad * ((1.0 + g * float(ad_dep)) ** max(0, months - 1))
+
+    peak_roi = (peak_rev - peak_ad) / peak_ad if peak_ad > 0 else np.nan
+    peak_profit = peak_rev * gm - peak_ad
+    peak_profit_roi = (peak_profit / peak_ad) if peak_ad > 0 else np.nan
+
+    return {
+        "now_revenue": float(total_rev),
+        "now_ad": float(now_ad),
+        "now_roi": float(now_roi) if not pd.isna(now_roi) else np.nan,
+        "now_profit": float(now_profit),
+        "now_profit_roi": float(now_profit_roi) if not pd.isna(now_profit_roi) else np.nan,
+        "peak_revenue": float(peak_rev),
+        "peak_ad": float(peak_ad),
+        "peak_roi": float(peak_roi) if not pd.isna(peak_roi) else np.nan,
+        "peak_profit": float(peak_profit),
+        "peak_profit_roi": float(peak_profit_roi) if not pd.isna(peak_profit_roi) else np.nan,
+        "assumptions": [
+            f"월성장률 {m_growth:.1%}",
+            f"광고기여율 {ad_contrib:.0%}",
+            f"재구매율 {repurchase:.0%}",
+            f"광고의존도 {ad_dep:.0%}",
+            f"CPC≈{cpc:,.0f} / CVR≈{cvr*100:.1f}%",
+        ],
+        "cpc": float(cpc),
+        "cvr": float(cvr),
+    }
+
 # =========================
 # Tabs
 # =========================
