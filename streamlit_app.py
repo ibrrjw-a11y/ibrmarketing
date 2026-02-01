@@ -78,6 +78,26 @@ hr.soft{
 @media (prefers-color-scheme: light){
   hr.soft{ border-top: 1px solid rgba(0,0,0,0.08); }
 }
+
+/* ✅ st.metric 값이 ...으로 잘리는 문제 방지 */
+div[data-testid="stMetricValue"]{
+  white-space: normal !important;    /* 줄바꿈 허용 */
+  overflow: visible !important;      /* 잘리지 않게 */
+  text-overflow: clip !important;    /* ... 제거 */
+  line-height: 1.15 !important;
+}
+
+/* 카드 안에서는 조금 더 작게 */
+.card div[data-testid="stMetricValue"]{
+  font-size: 1.35rem !important;     /* 필요시 1.25~1.45 조정 */
+}
+
+/* 모바일/좁은 화면에서는 더 줄이기 */
+@media (max-width: 1100px){
+  .card div[data-testid="stMetricValue"]{
+    font-size: 1.15rem !important;
+  }
+}
 </style>
 """, unsafe_allow_html=True)
 
