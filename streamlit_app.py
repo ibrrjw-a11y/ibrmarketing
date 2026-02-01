@@ -1284,9 +1284,9 @@ with tab_brand:
 # =========================================================
 with tab_rec:
     # --- cat_options 안전 가드(없으면 생성) ---
-try:
+    try:
     cat_options
-except NameError:
+    except NameError:
     # scenarios가 없다면 df_all 기반으로 생성
     try:
         scenarios
