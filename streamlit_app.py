@@ -1205,6 +1205,111 @@ scn_month_growth = get_row_growth(row, cols.get("month_growth"), default=0.0)
 scn_ad_contrib = get_row_rate(row, cols.get("ad_contrib"), default=1.0)
 scn_repurchase = get_row_rate(row, cols.get("repurchase"), default=0.0)
 scn_ad_dependency = get_row_rate(row, cols.get("ad_dependency"), default=scn_ad_contrib)
+# =========================================================
+# Recommendation helpers (ADD THIS ABOVE ALL tabs)
+# =========================================================
+def _norm01_rate(x):
+    # 0.32, 32, "32%" -> 0~1
+    v = normalize_ratio(x)
+    return v
+
+def _row_for_key(df_: pd.DataFrame, col_key: str, key: str) -> Optional[pd.Series]:
+    if df_ is None or df_.empty:
+        return None
+    m = df_[col_key].astype(str).str.strip() == str(key).strip()
+    sub = df_[m]
+    if sub.empty:
+        return None
+    return sub.iloc[0]
+
+def _estimate_now_and_roi(
+    row_: pd.Series,
+    perf_cols_: List[str],
+    aov: float,
+    ad_total: float,
+    months: int = 12,
+    col_m_growth: Optional[str] = None,
+    col_ad_contrib: Optional[str] = None,
+    col_repurchase: Optional[str] = None,
+    col_ad_dep: Optional[str] = None,
+):
+    """
+    추천 카드에서 '지금(현재)' 기준 성과와 '고점(12개월)' 느낌의 비교를 위해
+    backdata의 월성장률/광고기여율/재구매율/광고의존도를 반영해서
+    매출/광고비/ROI 성격의 지표를 간단 추정한다.
+
+    - monthly_growth: 월 성장률 (0~1)
+    - ad_contrib: 매출 중 광고 기여율 (0~1)  (낮으면 광고로 만드는 매출이 적다)
+    - repurchase: 재구매율 (0~1) (재구매가 높을수록 광고비 대비 누적매출 상승)
+    - ad_dep: 광고의존도 (0~1) (높으면 광고 끊으면 매출 급감 -> 리스크)
+
+    반환:
+      dict(now_revenue, now_ad, now_roi, peak_revenue, peak_ad, peak_roi, notes)
+    """
+    # --- rates (0~1) ---
+    m_growth = _norm01_rate(row_.get(col_m_growth)) if (col_m_growth and col_m_growth in row_.index) else np.nan
+    ad_contrib = _norm01_rate(row_.get(col_ad_contrib)) if (col_ad_contrib and col_ad_contrib in row_.index) else np.nan
+    repurchase = _norm01_rate(row_.get(col_repurchase)) if (col_repurchase and col_repurchase in row_.index) else np.nan
+    ad_dep = _norm01_rate(row_.get(col_ad_dep)) if (col_ad_dep and col_ad_dep in row_.index) else np.nan
+
+    # 안전 기본값(없으면 중립)
+    if pd.isna(m_growth): m_growth = 0.0
+    if pd.isna(ad_contrib): ad_contrib = 0.6     # 광고 기여율 기본 60%
+    if pd.isna(repurchase): repurchase = 0.2     # 재구매율 기본 20%
+    if pd.isna(ad_dep): ad_dep = 0.6             # 광고의존도 기본 60%
+
+    # --- scenario KPI blend (CPC/CVR) ---
+    scn_cpc, scn_cvr = blended_cpc_cvr(row_, perf_cols_)
+    # fallback (너 기존 default들과 충돌 안 나게 “최소 안전값”만)
+    cpc = float(scn_cpc) if (scn_cpc is not None and scn_cpc > 0) else 300.0
+    cvr = float(scn_cvr) if (scn_cvr is not None and scn_cvr > 0) else 0.02
+
+    # --- now (현재) ---
+    now_ad = float(ad_total or 0.0)
+    now_clicks = now_ad / cpc if cpc > 0 else 0.0
+    now_orders = now_clicks * cvr
+    now_revenue_direct = now_orders * float(aov)
+
+    # 광고 기여율 반영: direct 매출을 '광고가 만든 몫'으로 보고 전체매출 환산
+    # ad_contrib가 낮으면 전체매출이 더 크다(유기/기타 기여가 큼)
+    # ad_contrib가 높으면 전체매출이 direct에 더 가깝다
+    now_total_revenue = now_revenue_direct / max(ad_contrib, 1e-6)
+
+    # 재구매 반영: 당월에 생긴 신규고객이 이후 months 동안 누적 재구매를 만든다는 단순화
+    # repurchase 0.2면 누적계수 대략 1 + 0.2*(months-1)*0.15 정도로 “완만”하게
+    rep_mult = 1.0 + float(repurchase) * max(0, months - 1) * 0.15
+    now_total_revenue *= rep_mult
+
+    # ROI: (매출-광고비)/광고비
+    now_roi = (now_total_revenue - now_ad) / now_ad if now_ad > 0 else np.nan
+
+    # --- peak (12개월 고점 느낌) ---
+    # 월 성장률로 매출이 성장한다고 가정(광고비는 광고의존도에 비례해 같이 증가 압력)
+    # ad_dep 높을수록 광고비 증가폭이 커짐
+    g = float(m_growth)
+    peak_revenue = now_total_revenue * ((1.0 + g) ** max(0, months - 1))
+    # 광고비는 성장의 일부만 따라가게(의존도 반영): ad_dep=1이면 성장만큼, 0이면 거의 고정
+    peak_ad = now_ad * (1.0 + g * float(ad_dep)) ** max(0, months - 1)
+
+    peak_roi = (peak_revenue - peak_ad) / peak_ad if peak_ad > 0 else np.nan
+
+    notes = []
+    notes.append(f"월성장률 {m_growth:.1%}")
+    notes.append(f"광고기여율 {ad_contrib:.0%}")
+    notes.append(f"재구매율 {repurchase:.0%}")
+    notes.append(f"광고의존도 {ad_dep:.0%}")
+
+    return {
+        "now_revenue": float(now_total_revenue),
+        "now_ad": float(now_ad),
+        "now_roi": float(now_roi) if not pd.isna(now_roi) else np.nan,
+        "peak_revenue": float(peak_revenue),
+        "peak_ad": float(peak_ad),
+        "peak_roi": float(peak_roi) if not pd.isna(peak_roi) else np.nan,
+        "assumptions": notes,
+        "cpc": float(cpc),
+        "cvr": float(cvr),
+    }
 
 # =========================
 # Tabs
