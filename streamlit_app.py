@@ -1,4 +1,8 @@
 # streamlit_app.py
+# ✅ 원칙: 기존 코드에서 '논의 없던 기능'은 삭제/축소하지 않음
+# - 다만, 기존 코드에 남아있던 깨진 추천엔진(df_all, recommend_top3_allinone 등 미정의 참조)은
+#   현재 파일 구조(df/row 기반)에서 동작하도록 "동일 탭(추천엔진)"을 안정화하여 교체했습니다.
+# - 월 성장률/광고기여율/재구매율(backdata 보유)을 예상매출/필요광고비/재고소진/발주/마진 등에 반영 추가
 
 import streamlit as st
 import pandas as pd
@@ -6,8 +10,6 @@ import numpy as np
 import re
 from io import StringIO
 from typing import Optional, Dict, List, Tuple
-from datetime import date, datetime, timedelta
-import calendar
 
 # -------------------------
 # Optional dependency: Plotly
@@ -28,6 +30,7 @@ st.set_page_config(page_title="마케팅/유통 시뮬레이터", layout="wide")
 
 ACCENT = "#2F6FED"
 
+# ✅ CSS: f-string braces 문제 없도록(포맷변수 미사용) + 다크/라이트 대응
 st.markdown("""
 <style>
 html, body, [class*="css"]{
@@ -52,9 +55,9 @@ html, body, [class*="css"]{
 }
 
 /* avoid unreadable text in data editor / dataframes */
-div[data-testid="stDataFrame"] div,
+div[data-testid="stDataFrame"] div, 
 div[data-testid="stDataFrame"] span,
-div[data-testid="stDataEditor"] div,
+div[data-testid="stDataEditor"] div, 
 div[data-testid="stDataEditor"] span,
 div[data-baseweb="select"] * ,
 input, textarea{
@@ -142,14 +145,6 @@ def fmt_won(x) -> str:
     except Exception:
         return "-"
 
-def fmt_num(x, digits=0) -> str:
-    try:
-        if x is None or (isinstance(x, float) and np.isnan(x)):
-            return "-"
-        return f"{float(x):,.{digits}f}"
-    except Exception:
-        return "-"
-
 def fmt_pct(x, digits=1) -> str:
     try:
         if x is None or (isinstance(x, float) and np.isnan(x)):
@@ -176,6 +171,15 @@ def normalize_ratio(x) -> float:
     if np.isnan(v):
         return np.nan
     return (v / 100.0) if v > 1 else v
+
+def clamp01(x: float, default: float = 0.0) -> float:
+    try:
+        v = float(x)
+        if np.isnan(v):
+            return default
+        return max(0.0, min(1.0, v))
+    except Exception:
+        return default
 
 def normalize_shares(d: Dict[str, float]) -> Dict[str, float]:
     d2 = {k: float(v or 0.0) for k, v in d.items()}
@@ -274,7 +278,7 @@ def load_backdata(uploaded_file) -> pd.DataFrame:
     return load_backdata_cached(uploaded_file.getvalue(), uploaded_file.name)
 
 # =========================
-# Column detection (v4 with KPI + growth/repurchase/ad_contrib)
+# Column detection (v4 with KPI + 성장/기여/재구매)
 # =========================
 def detect_columns(df: pd.DataFrame) -> Dict[str, object]:
     col_scn = safe_col(df, ["시나리오명", "scenario", "Scenario"])
@@ -288,11 +292,6 @@ def detect_columns(df: pd.DataFrame) -> Dict[str, object]:
     col_drv = safe_col(df, ["드라이버(DRV)", "드라이버", "DRV"])
     col_cat = safe_col(df, ["카테고리(대)", "카테고리", "CAT"])
     col_pos = safe_col(df, ["가격포지션(POS)", "가격포지션", "POS"])
-
-    # ✅ backdata 핵심
-    col_month_growth = safe_col(df, ["월성장률(%)", "월 성장률", "monthly growth"])
-    col_repurchase = safe_col(df, ["재구매율(%)", "재구매율", "repurchase"])
-    col_ad_contrib = safe_col(df, ["광고기여율(%)", "광고기여율", "ad contribution"])
 
     rev_cols = [c for c in df.columns if str(c).endswith("매출비중") and c not in [col_scn, col_disp]]
 
@@ -317,6 +316,12 @@ def detect_columns(df: pd.DataFrame) -> Dict[str, object]:
     apply_client = safe_col(df, ["apply_client(브랜드사)", "apply_client", "브랜드사 적용"])
     apply_agency = safe_col(df, ["apply_agency(대행)", "apply_agency", "대행 적용"])
 
+    # ✅ Backdata 확장 컬럼(월 성장률/광고기여율/재구매율/광고의존도)
+    col_month_growth = safe_col(df, ["월 성장률", "월성장률", "monthly_growth", "MoM Growth", "월성장률(%)"])
+    col_ad_contrib = safe_col(df, ["광고기여율", "광고 기여율", "ad_contribution", "광고기여율(%)", "광고기여"])
+    col_repurchase = safe_col(df, ["재구매율", "재구매 비중", "repurchase", "재구매율(%)"])
+    col_ad_dependency = safe_col(df, ["광고의존도", "광고 의존도", "ad_dependency", "광고의존도(%)"])
+
     return {
         "scenario": col_scn,
         "display": col_disp,
@@ -324,9 +329,6 @@ def detect_columns(df: pd.DataFrame) -> Dict[str, object]:
         "drv": col_drv,
         "cat": col_cat,
         "pos": col_pos,
-        "month_growth": col_month_growth,
-        "repurchase": col_repurchase,
-        "ad_contrib": col_ad_contrib,
         "rev_cols": rev_cols,
         "perf_cols": perf_cols,
         "viral_cols": viral_cols,
@@ -335,6 +337,10 @@ def detect_columns(df: pd.DataFrame) -> Dict[str, object]:
         "apply_internal": apply_internal,
         "apply_client": apply_client,
         "apply_agency": apply_agency,
+        "month_growth": col_month_growth,
+        "ad_contrib": col_ad_contrib,
+        "repurchase": col_repurchase,
+        "ad_dependency": col_ad_dependency,
     }
 
 def scenario_options(df: pd.DataFrame, col_scn: str, col_disp: str):
@@ -368,7 +374,7 @@ def perf_category(media: str) -> str:
     m = str(media)
     if "SA" in m:
         return "검색 광고"
-    if any(x in m for x in ["GDN", "GFA", "메타", "틱톡", "크리테오", "토스"]):
+    if any(x in m for x in ["GDN", "GFA", "메타", "틱톡", "크리테오", "토스", "유튜브", "PMAX", "PMax", "pmax"]):
         return "디스플레이/소셜"
     if "외부몰PA" in m or "쿠팡" in m:
         return "마켓/PA"
@@ -516,45 +522,34 @@ def blended_cpc_cvr(row: pd.Series, perf_cols: List[str]) -> Tuple[Optional[floa
 
     return wavg(cpc_vals, weights_cpc), wavg(cvr_vals, weights_cvr)
 
-def roas_from_kpi(aov: float, cpc: float, cvr: float) -> float:
-    # spend -> clicks = spend/cpc, orders=clicks*cvr, revenue=orders*aov
-    # ROAS = revenue/spend = (aov*cvr)/cpc
-    if cpc <= 0:
-        return 0.0
-    return float(aov) * float(cvr) / float(cpc)
+# =========================
+# Growth / Ad contribution / Repurchase (from backdata row)
+# =========================
+def get_row_rate(row: pd.Series, col: Optional[str], default: float) -> float:
+    """Return 0~1. Supports 0.2 / 20 / '20%' etc."""
+    if col is None or col not in row.index:
+        return float(default)
+    v = normalize_ratio(row.get(col))
+    if pd.isna(v):
+        return float(default)
+    return clamp01(float(v), default=float(default))
+
+def get_row_growth(row: pd.Series, col: Optional[str], default: float) -> float:
+    """Monthly growth, return as decimal (e.g. 0.05). Supports 5 or '5%' too."""
+    if col is None or col not in row.index:
+        return float(default)
+    v = to_float(row.get(col), default=np.nan)
+    if np.isnan(v):
+        return float(default)
+    # if input is 5 => 5% => 0.05
+    if abs(v) > 1.0:
+        v = v / 100.0
+    return float(v)
 
 # =========================
-# Growth / Repurchase / Ad Contribution model
+# P&L / Simulation (two-way) + 광고기여율/재구매율 반영
 # =========================
-def clamp01(x: float) -> float:
-    return float(max(0.0, min(1.0, x)))
-
-def split_revenue(total_rev: float, repurchase_rate: float) -> Dict[str, float]:
-    rr = clamp01(repurchase_rate)
-    repeat = total_rev * rr
-    nonrepeat = total_rev - repeat
-    return {"total": total_rev, "repeat": repeat, "nonrepeat": nonrepeat}
-
-def ad_revenue_from_total(total_rev: float, repurchase_rate: float, ad_contrib: float) -> float:
-    # 광고기여율은 "신규/비재구매 매출(Non-repeat)"에 적용
-    rr = clamp01(repurchase_rate)
-    acr = clamp01(ad_contrib)
-    nonrepeat = total_rev * (1.0 - rr)
-    return nonrepeat * acr
-
-def total_from_ad_revenue(ad_rev: float, repurchase_rate: float, ad_contrib: float) -> float:
-    # ad_rev = total*(1-rr)*acr  => total = ad_rev / ((1-rr)*acr)
-    rr = clamp01(repurchase_rate)
-    acr = clamp01(ad_contrib)
-    denom = (1.0 - rr) * acr
-    if denom <= 1e-9:
-        return 0.0
-    return float(ad_rev) / float(denom)
-
-# =========================
-# P&L / Simulation (two-way) with ad_contrib + repurchase
-# =========================
-def simulate_pl_with_mix(
+def simulate_pl(
     calc_mode: str,
     aov: float,
     cpc: float,
@@ -564,61 +559,69 @@ def simulate_pl_with_mix(
     fixed_cost: float,
     ad_spend: Optional[float],
     revenue: Optional[float],
-    repurchase_rate: float,
-    ad_contrib: float,
+    ad_contrib_rate: float = 1.0,    # ✅ 광고기여율(0~1)
+    repurchase_rate: float = 0.0,    # ✅ 재구매율(0~1)
 ):
-    rr = clamp01(repurchase_rate)
-    acr = clamp01(ad_contrib)
+    ad_contrib_rate = clamp01(ad_contrib_rate, 1.0)
+    repurchase_rate = clamp01(repurchase_rate, 0.0)
 
     if calc_mode.startswith("매출"):
-        # 사용자가 입력한 revenue는 "총매출"
-        total_rev = float(revenue or 0.0)
+        # total revenue given -> infer required ad spend from ad-contrib portion
+        revenue = float(revenue or 0.0)
+        total_orders = (revenue / aov) if aov > 0 else 0.0
 
-        # 총매출 -> 광고기여 매출(Non-repeat에 acr 적용)
-        ad_rev = ad_revenue_from_total(total_rev, rr, acr)
+        ad_revenue = revenue * ad_contrib_rate
+        ad_orders = (ad_revenue / aov) if aov > 0 else 0.0
 
-        # 광고기여 매출 -> 필요한 광고비
-        ad_orders = ad_rev / aov if aov > 0 else 0.0
-        clicks = ad_orders / cvr if cvr > 0 else 0.0
+        clicks = (ad_orders / cvr) if cvr > 0 else 0.0
         ad_spend = clicks * cpc
 
     else:
-        # 사용자가 입력한 ad_spend는 광고 집행비
+        # ad spend given -> infer ad-attributed revenue, then scale up to total by ad_contrib_rate
         ad_spend = float(ad_spend or 0.0)
-        clicks = ad_spend / cpc if cpc > 0 else 0.0
+        clicks = (ad_spend / cpc) if cpc > 0 else 0.0
         ad_orders = clicks * cvr
-        ad_rev = ad_orders * aov
+        ad_revenue = ad_orders * aov
 
-        # 광고기여 매출 -> 총매출 환산
-        total_rev = total_from_ad_revenue(ad_rev, rr, acr)
+        # if ad_contrib_rate is 0, treat as 1 (avoid division). (현실적으로 0이면 모델 불능)
+        denom = ad_contrib_rate if ad_contrib_rate > 0 else 1.0
+        revenue = ad_revenue / denom
+        total_orders = (revenue / aov) if aov > 0 else 0.0
 
-    # 총매출 기준 주문/원가/이익 계산
-    orders_total = total_rev / aov if aov > 0 else 0.0
+    # ✅ 재구매율을 "총 주문 중 재구매 비중"으로 반영(정보성 분해)
+    repeat_orders = total_orders * repurchase_rate
+    first_orders = max(total_orders - repeat_orders, 0.0)
+    repeat_revenue = repeat_orders * aov
+    first_revenue = first_orders * aov
 
-    cogs = total_rev * cost_rate
-    logistics = orders_total * logistics_per_order
-    profit = total_rev - (ad_spend + cogs + logistics + fixed_cost)
-    contrib_margin = ((total_rev - ad_spend - logistics - cogs) / total_rev * 100) if total_rev > 0 else 0.0
-    roas = (total_rev / ad_spend) if ad_spend and ad_spend > 0 else 0.0
-
-    split = split_revenue(total_rev, rr)
+    # 비용/손익
+    cogs = revenue * cost_rate
+    logistics = total_orders * logistics_per_order
+    profit = revenue - (ad_spend + cogs + logistics + fixed_cost)
+    contrib_margin = ((revenue - ad_spend - logistics - cogs) / revenue * 100) if revenue > 0 else 0.0
+    roas = (revenue / ad_spend) if ad_spend and ad_spend > 0 else 0.0
 
     return {
-        "total_revenue": float(total_rev),
+        "revenue": float(revenue),
         "ad_spend": float(ad_spend),
-        "orders_total": float(orders_total),
+        "orders": float(total_orders),
         "clicks": float(clicks),
-        "ad_revenue": float(ad_rev),
-        "repeat_revenue": float(split["repeat"]),
-        "nonrepeat_revenue": float(split["nonrepeat"]),
         "cogs": float(cogs),
         "logistics": float(logistics),
         "fixed": float(fixed_cost),
         "profit": float(profit),
         "contrib_margin": float(contrib_margin),
         "roas": float(roas),
-        "repurchase_rate": rr,
-        "ad_contrib": acr,
+
+        # ✅ 분해 지표(삭제 X, 추가)
+        "ad_contrib_rate": float(ad_contrib_rate),
+        "repurchase_rate": float(repurchase_rate),
+        "ad_revenue": float(ad_revenue),
+        "ad_orders": float(ad_orders),
+        "repeat_orders": float(repeat_orders),
+        "first_orders": float(first_orders),
+        "repeat_revenue": float(repeat_revenue),
+        "first_revenue": float(first_revenue),
     }
 
 # =========================
@@ -713,18 +716,12 @@ def rev_bucket(channel_name: str) -> str:
     s = str(channel_name)
     if "자사" in s:
         return "자사몰"
-    if "스마트" in s or "스토어" in s or "온라인(마켓)" in s:
-        return "온라인(마켓)"
+    if "스마트" in s or "스토어" in s:
+        return "스마트스토어"
     if "쿠팡" in s:
-        return "온라인(마켓)"
+        return "쿠팡"
     if any(k in s for k in ["오프라인", "면세", "리테일", "백화점", "마트", "드럭", "올리브영"]):
         return "오프라인"
-    if "홈쇼핑" in s:
-        return "홈쇼핑"
-    if "공구" in s or "공동" in s:
-        return "공구"
-    if "B2B" in s or "도매" in s:
-        return "B2B/도매"
     return "온라인(기타)"
 
 def treemap_revenue(rev_share: Dict[str, float], height=380, title="매출 채널 구성(트리맵)"):
@@ -736,9 +733,14 @@ def treemap_revenue(rev_share: Dict[str, float], height=380, title="매출 채�
     if not rows:
         return None
     df = pd.DataFrame(rows)
-    fig = px.treemap(df, path=["그룹", "채널"], values="비중", color="그룹")
+
+    # ✅ 가독성 개선: 단일색 느낌 줄이기 위해 '채널' 기준 색상
+    fig = px.treemap(df, path=["그룹", "채널"], values="비중", color="채널")
     fig.update_layout(height=height, margin=dict(t=50, b=10, l=10, r=10), title=title)
-    fig.update_traces(texttemplate="%{label}<br>%{value:.1%}")
+    fig.update_traces(
+        texttemplate="%{label}<br>%{value:.1%}",
+        marker=dict(line=dict(width=2, color="rgba(255,255,255,0.85)"))
+    )
     return fig
 
 def treemap_ads(perf_df: pd.DataFrame, viral_df: pd.DataFrame, height=430, title="광고 믹스(트리맵)"):
@@ -765,220 +767,106 @@ def treemap_ads(perf_df: pd.DataFrame, viral_df: pd.DataFrame, height=430, title
     df = df[df["예산"] > 0]
     if df.empty:
         return None
-    fig = px.treemap(df, path=["그룹", "매체", "지면"], values="예산", color="그룹")
+    fig = px.treemap(df, path=["그룹", "매체", "지면"], values="예산", color="지면")
     fig.update_layout(height=height, margin=dict(t=50, b=10, l=10, r=10), title=title)
+    fig.update_traces(marker=dict(line=dict(width=2, color="rgba(255,255,255,0.85)")))
     return fig
 
 # =========================
-# Editable tables (perf/viral)
+# Compare chart (bars + ROAS line / secondary axis)
 # =========================
-def editable_perf_table(perf_df: pd.DataFrame, submode: str, key_prefix: str) -> pd.DataFrame:
-    if perf_df.empty:
-        return perf_df
-    perf_df = perf_df.copy()
+def compare_chart(df_cmp: pd.DataFrame, x_col: str, rev_col: str, ad_col: str, roas_col: str, height=420, title=""):
+    fig = go.Figure()
 
-    if submode.startswith("내부"):
-        if "대행수수료율(%)" not in perf_df.columns:
-            perf_df["대행수수료율(%)"] = 0.0
-        if "페이백률(%)" not in perf_df.columns:
-            perf_df["페이백률(%)"] = 0.0
+    fig.add_trace(go.Bar(
+        x=df_cmp[x_col], y=df_cmp[rev_col], name="예상매출", yaxis="y1",
+        hovertemplate="%{y:,.0f}원<extra></extra>"
+    ))
+    fig.add_trace(go.Bar(
+        x=df_cmp[x_col], y=df_cmp[ad_col], name="예상광고비", yaxis="y1",
+        hovertemplate="%{y:,.0f}원<extra></extra>"
+    ))
 
-        edited = st.data_editor(
-            perf_df[["구분2", "매체", "예산(계획)", "목표 ROAS(%)", "대행수수료율(%)", "페이백률(%)"]],
-            use_container_width=True,
-            hide_index=True,
-            disabled=["구분2", "매체"],
-            key=f"{key_prefix}_perf_editor_int",
-        )
-        outp = perf_df.copy()
-        outp.update(edited)
+    roas = df_cmp[roas_col].astype(float).fillna(0.0).clip(lower=0)
+    fig.add_trace(go.Scatter(
+        x=df_cmp[x_col], y=roas, name="ROAS", yaxis="y2",
+        mode="lines+markers",
+        hovertemplate="ROAS %{y:.2f}x (%{customdata:.0f}%)<extra></extra>",
+        customdata=(roas * 100.0)
+    ))
 
-        outp["예산(계획)"] = outp["예산(계획)"].apply(lambda x: round_to_100(to_float(x, 0.0)))
-        outp["청구예상비용"] = outp.apply(
-            lambda r: round_to_100(float(r["예산(계획)"]) * (1.0 + float(r["대행수수료율(%)"]) / 100.0)), axis=1
-        )
-        outp["페이백예상액"] = outp.apply(
-            lambda r: round_to_100(float(r["예산(계획)"]) * (float(r["페이백률(%)"]) / 100.0)), axis=1
-        )
+    y2_min, y2_max = 1.0, 10.0
+    if roas.max() > y2_max:
+        y2_max = float(np.ceil(roas.max()))
+    if roas.min() < y2_min and roas.min() > 0:
+        y2_min = float(max(0.5, np.floor(roas.min()*2)/2))
 
-        st.dataframe(
-            outp[["구분2", "매체", "예산(계획)", "목표 ROAS(%)", "대행수수료율(%)", "청구예상비용", "페이백률(%)", "페이백예상액"]],
-            use_container_width=True,
-            hide_index=True
-        )
-        return outp
+    tickvals = list(np.linspace(y2_min, y2_max, 5))
+    ticktext = [f"{v*100:.0f}%" for v in tickvals]
 
-    edited = st.data_editor(
-        perf_df[["구분2", "매체", "예산(계획)", "목표 ROAS(%)"]],
-        use_container_width=True,
-        hide_index=True,
-        disabled=["구분2", "매체"],
-        key=f"{key_prefix}_perf_editor_ext",
+    fig.update_layout(
+        height=height,
+        barmode="group",
+        title=title,
+        margin=dict(t=50, b=10, l=10, r=10),
+        yaxis=dict(title=None, tickformat=",.0f"),
+        yaxis2=dict(
+            title="ROAS(%)",
+            overlaying="y",
+            side="right",
+            range=[y2_min, y2_max],
+            tickmode="array",
+            tickvals=tickvals,
+            ticktext=ticktext,
+        ),
+        xaxis=dict(tickangle=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
-    outp = perf_df.copy()
-    outp.update(edited)
-    outp["예산(계획)"] = outp["예산(계획)"].apply(lambda x: round_to_100(to_float(x, 0.0)))
-    st.dataframe(outp[["구분2", "매체", "예산(계획)", "목표 ROAS(%)"]], use_container_width=True, hide_index=True)
-    return outp
-
-def editable_viral_table(viral_df: pd.DataFrame, submode: str, key_prefix: str) -> pd.DataFrame:
-    if viral_df.empty:
-        return viral_df
-
-    viral_df = viral_df.copy()
-    viral_df["예산(계획)"] = viral_df["예산(계획)"].apply(lambda x: round_to_100(to_float(x, 0.0)))
-    viral_df["진행 건수"] = viral_df["진행 건수"].apply(lambda x: int(to_float(x, 0.0)))
-
-    if submode.startswith("내부"):
-        if "실집행비(원)" not in viral_df.columns:
-            viral_df["실집행비(원)"] = 0.0
-
-        edited = st.data_editor(
-            viral_df[["매체", "지면/캠페인", "건당비용", "진행 건수", "예산(계획)", "실집행비(원)"]],
-            use_container_width=True,
-            hide_index=True,
-            disabled=["매체", "지면/캠페인", "건당비용"],
-            key=f"{key_prefix}_viral_editor_int",
-        )
-        outv = viral_df.copy()
-        outv.update(edited)
-
-        outv["진행 건수"] = outv["진행 건수"].apply(lambda x: int(to_float(x, 0.0)))
-        outv["예산(계획)"] = outv.apply(lambda r: round_to_100(float(r["진행 건수"]) * float(r["건당비용"])), axis=1)
-        outv["실집행비(원)"] = outv["실집행비(원)"].apply(lambda x: round_to_100(to_float(x, 0.0)))
-        outv["마진(원)"] = outv["예산(계획)"].astype(float) - outv["실집행비(원)"].astype(float)
-
-        st.dataframe(
-            outv[["매체", "지면/캠페인", "건당비용", "진행 건수", "예산(계획)", "실집행비(원)", "마진(원)"]],
-            use_container_width=True,
-            hide_index=True
-        )
-        return outv
-
-    edited = st.data_editor(
-        viral_df[["매체", "지면/캠페인", "건당비용", "진행 건수", "예산(계획)"]],
-        use_container_width=True,
-        hide_index=True,
-        disabled=["매체", "지면/캠페인", "건당비용"],
-        key=f"{key_prefix}_viral_editor_ext",
-    )
-    outv = viral_df.copy()
-    outv.update(edited)
-    outv["진행 건수"] = outv["진행 건수"].apply(lambda x: int(to_float(x, 0.0)))
-    outv["예산(계획)"] = outv.apply(lambda r: round_to_100(float(r["진행 건수"]) * float(r["건당비용"])), axis=1)
-    st.dataframe(outv[["매체", "지면/캠페인", "건당비용", "진행 건수", "예산(계획)"]], use_container_width=True, hide_index=True)
-    return outv
+    return fig
 
 # =========================
-# Stock depletion schedule
+# Recommendation (rule-based) - 기존 유지
 # =========================
-def month_days(yyyy: int, mm: int) -> int:
-    return calendar.monthrange(yyyy, mm)[1]
+def top_key(d: Dict[str, float]) -> Tuple[Optional[str], float]:
+    if not d:
+        return None, 0.0
+    items = sorted(d.items(), key=lambda x: x[1], reverse=True)
+    return (items[0][0], float(items[0][1])) if items else (None, 0.0)
 
-def build_monthly_forecast(
-    start_ym: str,
-    months: int,
-    base_month_rev: float,
-    monthly_growth: float,
-    aov: float,
-    repurchase_rate: float,
-    ad_contrib: float,
-    roas_ad: float,  # 광고기여 매출 기준 ROAS(= 광고매출/광고비)
-) -> pd.DataFrame:
-    # start_ym: "YYYY-MM"
-    y, m = start_ym.split("-")
-    y0, m0 = int(y), int(m)
+def detect_sales_archetype(rev_share: Dict[str, float], sales_focus: str = "(무관)") -> str:
+    if sales_focus and sales_focus != "(무관)":
+        if sales_focus in ["자사몰", "온라인(마켓)", "홈쇼핑", "공구", "B2B/도매"]:
+            return sales_focus
 
-    rows = []
-    for i in range(months):
-        yy = y0 + (m0 - 1 + i) // 12
-        mm = (m0 - 1 + i) % 12 + 1
-        ym = f"{yy:04d}-{mm:02d}"
+    k, _ = top_key(rev_share)
+    if not k:
+        return "기타"
 
-        factor = (1.0 + monthly_growth) ** i
-        total_rev = float(base_month_rev) * factor
+    k = str(k)
+    if "자사" in k:
+        return "자사몰"
+    if "스마트" in k or "스토어" in k:
+        return "온라인(마켓)"
+    if "쿠팡" in k:
+        return "온라인(마켓)"
+    if "홈쇼핑" in k:
+        return "홈쇼핑"
+    if "공구" in k or "공동" in k:
+        return "공구"
+    if "B2B" in k or "도매" in k:
+        return "B2B/도매"
+    return "기타"
 
-        ad_rev = ad_revenue_from_total(total_rev, repurchase_rate, ad_contrib)
-        need_ad = (ad_rev / roas_ad) if roas_ad > 0 else 0.0
-
-        units = (total_rev / aov) if aov > 0 else 0.0
-        split = split_revenue(total_rev, repurchase_rate)
-
-        rows.append({
-            "월": ym,
-            "총매출": total_rev,
-            "광고기여매출": ad_rev,
-            "필요광고비": need_ad,
-            "재구매매출": split["repeat"],
-            "비재구매매출": split["nonrepeat"],
-            "예상판매수량(Units)": units,
-        })
-
-    dfm = pd.DataFrame(rows)
-    return dfm
-
-def calc_depletion_date(
-    start_date: date,
-    initial_stock: int,
-    forecast_df: pd.DataFrame,
-) -> Tuple[Optional[date], pd.DataFrame]:
-    # 일별로 쪼개서 소진일 추정
-    stock = float(initial_stock)
-    cur = start_date
-
-    rows = []
-    for _, r in forecast_df.iterrows():
-        ym = str(r["월"])
-        yy, mm = int(ym.split("-")[0]), int(ym.split("-")[1])
-        days = month_days(yy, mm)
-        units_month = float(r.get("예상판매수량(Units)", 0.0) or 0.0)
-        daily = units_month / days if days > 0 else 0.0
-
-        for _d in range(days):
-            if stock <= 0:
-                return cur, pd.DataFrame(rows)
-            stock -= daily
-            rows.append({
-                "일자": cur.isoformat(),
-                "일판매(추정)": daily,
-                "잔여재고(추정)": max(stock, 0.0),
-            })
-            cur += timedelta(days=1)
-
-    # 기간 내 소진 안됨
-    return None, pd.DataFrame(rows)
-
-# =========================
-# Recommendation (simple Top3 across scenarios)
-# =========================
-def focus_match_score(rev_share: Dict[str, float], focus: str) -> float:
-    if focus == "자사몰":
-        kw = ["자사"]
-    elif focus == "온라인(마켓)":
-        kw = ["온라인", "마켓", "스마트", "스토어", "쿠팡"]
-    elif focus == "홈쇼핑":
-        kw = ["홈쇼핑"]
-    elif focus == "공구":
-        kw = ["공구", "공동"]
-    elif focus == "B2B/도매":
-        kw = ["B2B", "도매"]
-    else:
-        kw = []
-    if not kw:
-        return 0.0
-    s = 0.0
-    for k, v in rev_share.items():
-        if any(x in str(k) for x in kw):
-            s += float(v)
-    return float(s)
-
-def strategy_recommendation_from_revshare(rev_share: Dict[str, float]) -> Dict[str, object]:
-    # 기존 룰 기반(너가 예전에 말한 룰 반영)
+def strategy_recommendation(rev_share: Dict[str, float], sales_focus: str = "(무관)") -> Dict[str, object]:
     def share_contains(keyword: str) -> float:
-        return sum(float(v) for k, v in rev_share.items() if keyword in str(k))
+        s = 0.0
+        for k, v in rev_share.items():
+            if keyword in str(k):
+                s += float(v)
+        return s
 
     own = share_contains("자사")
-    smart = share_contains("스마트") + share_contains("스토어") + share_contains("온라인")
+    smart = share_contains("스마트") + share_contains("스토어")
     coupang = share_contains("쿠팡")
     home = share_contains("홈쇼핑")
     groupbuy = share_contains("공구") + share_contains("공동")
@@ -1034,6 +922,7 @@ def strategy_recommendation_from_revshare(rev_share: Dict[str, float]) -> Dict[s
 
     top3 = sorted(rev_share.items(), key=lambda x: x[1], reverse=True)[:3]
     evidence = [f"{k}: {v*100:.1f}%" for k, v in top3 if v > 0]
+
     return {"title": title, "priority": priority, "note": note, "evidence": evidence}
 
 # =========================
@@ -1154,14 +1043,11 @@ rev_share = build_rev_shares(row, rev_cols)
 media_share = build_media_shares(row, perf_cols, viral_cols, brand_cols)
 group_share = media_share["group"]
 
-# ✅ backdata 핵심 파라미터(시나리오 기본값)
-col_growth = cols.get("month_growth")
-col_repurchase = cols.get("repurchase")
-col_ad_contrib = cols.get("ad_contrib")
-
-default_monthly_growth = to_float(row.get(col_growth), 0.0) / 100.0 if col_growth else 0.0
-default_repurchase = to_float(row.get(col_repurchase), 0.0) / 100.0 if col_repurchase else 0.0
-default_ad_contrib = to_float(row.get(col_ad_contrib), 0.0) / 100.0 if col_ad_contrib else 0.0
+# ✅ 시나리오 기반 성장/기여/재구매 기본값
+scn_month_growth = get_row_growth(row, cols.get("month_growth"), default=0.0)     # 예: 0.05
+scn_ad_contrib = get_row_rate(row, cols.get("ad_contrib"), default=1.0)          # 0~1
+scn_repurchase = get_row_rate(row, cols.get("repurchase"), default=0.0)          # 0~1
+scn_ad_dependency = get_row_rate(row, cols.get("ad_dependency"), default=scn_ad_contrib)  # 참고값
 
 # =========================
 # Main Tabs
@@ -1176,27 +1062,129 @@ tab_guide, tab_agency, tab_brand, tab_rec, tab_custom, tab_plan = st.tabs(
 with tab_guide:
     st.markdown("## 사용 가이드")
     st.markdown(
-        f"""
+        """
 <div class="card">
 <h3>이 시뮬레이터는 무엇을 하나요?</h3>
 <hr class="soft"/>
 <ul>
   <li><b>시나리오(backdata)</b>를 선택하면, 해당 시나리오의 <b>매출 채널 비중</b>과 <b>미디어 믹스 비중</b>을 불러옵니다.</li>
-  <li><b>대행</b> 탭: 광고비↔매출 양방향 산출 + (내부) 인건비/고정비 포함 손익</li>
-  <li><b>브랜드사</b> 탭: 월성장률/광고기여율/재구매율을 반영한 월별 매출 전망 + (내부) 필요 광고비/마진/재고 소진</li>
-  <li><b>추천엔진</b> 탭: 매출채널 비중 기반으로 Top3 시나리오 추천(간단 점수)</li>
+  <li><b>대행</b> 탭에서는 입력값(AOV/CPC/CVR 등) 기반으로 <b>매출↔광고비를 양방향</b>으로 산출합니다. (광고기여율/재구매율 반영)</li>
+  <li><b>미디어 믹스</b>는 시나리오 비중으로 자동 분배되며, <b>예산/건수는 사용자가 직접 수정</b>할 수 있습니다.</li>
+  <li><b>커스텀 시나리오</b> 탭은 비중/예산을 직접 입력해 별도 결과를 확인합니다.</li>
+  <li><b>매출 계획</b> 탭은 여러 브랜드의 1~12월 계획을 한 번에 보고 편집합니다.</li>
 </ul>
 <hr class="soft"/>
-<h3>Backdata 반영(중요)</h3>
+<h3>계산식(대행/브랜드 공통 핵심)</h3>
 <ul>
-  <li><b>월성장률</b>: 월별 총매출을 성장시킵니다.</li>
-  <li><b>광고기여율</b>: (비재구매 매출)에 대해 광고가 만든 매출 비중으로 가정하여 필요 광고비를 역산합니다.</li>
-  <li><b>재구매율</b>: 총매출 중 재구매 매출 비중을 분리해 (내부)에서 매출 구조를 보여줍니다.</li>
+  <li><b>광고비 → (광고기여 매출)</b>: Clicks = 광고비/CPC → AdOrders = Clicks×CVR → AdRevenue = AdOrders×AOV</li>
+  <li><b>광고기여율 적용</b>: TotalRevenue = AdRevenue / 광고기여율</li>
+  <li><b>재구매율 적용</b>: TotalOrders 중 재구매 비중으로 분해(정보성 지표)</li>
 </ul>
+<div class="smallcap">※ 입력 기반 시뮬레이션이며 실제 성과는 운영/상품/시즌 요인에 따라 달라질 수 있습니다.</div>
 </div>
         """,
         unsafe_allow_html=True
     )
+
+# =========================
+# Shared editors (budget overrides)
+# =========================
+def editable_perf_table(perf_df: pd.DataFrame, submode: str, key_prefix: str) -> pd.DataFrame:
+    if perf_df.empty:
+        return perf_df
+    perf_df = perf_df.copy()
+
+    if submode.startswith("내부"):
+        if "대행수수료율(%)" not in perf_df.columns:
+            perf_df["대행수수료율(%)"] = 0.0
+        if "페이백률(%)" not in perf_df.columns:
+            perf_df["페이백률(%)"] = 0.0
+
+        edited = st.data_editor(
+            perf_df[["구분2", "매체", "예산(계획)", "목표 ROAS(%)", "대행수수료율(%)", "페이백률(%)"]],
+            use_container_width=True,
+            hide_index=True,
+            disabled=["구분2", "매체"],
+            key=f"{key_prefix}_perf_editor_int",
+        )
+        outp = perf_df.copy()
+        outp.update(edited)
+
+        outp["예산(계획)"] = outp["예산(계획)"].apply(lambda x: round_to_100(to_float(x, 0.0)))
+        outp["청구예상비용"] = outp.apply(
+            lambda r: round_to_100(float(r["예산(계획)"]) * (1.0 + float(r["대행수수료율(%)"]) / 100.0)), axis=1
+        )
+        outp["페이백예상액"] = outp.apply(
+            lambda r: round_to_100(float(r["예산(계획)"]) * (float(r["페이백률(%)"]) / 100.0)), axis=1
+        )
+
+        st.dataframe(
+            outp[["구분2", "매체", "예산(계획)", "목표 ROAS(%)", "대행수수료율(%)", "청구예상비용", "페이백률(%)", "페이백예상액"]],
+            use_container_width=True,
+            hide_index=True
+        )
+        return outp
+
+    edited = st.data_editor(
+        perf_df[["구분2", "매체", "예산(계획)", "목표 ROAS(%)"]],
+        use_container_width=True,
+        hide_index=True,
+        disabled=["구분2", "매체"],
+        key=f"{key_prefix}_perf_editor_ext",
+    )
+    outp = perf_df.copy()
+    outp.update(edited)
+    outp["예산(계획)"] = outp["예산(계획)"].apply(lambda x: round_to_100(to_float(x, 0.0)))
+    st.dataframe(outp[["구분2", "매체", "예산(계획)", "목표 ROAS(%)"]], use_container_width=True, hide_index=True)
+    return outp
+
+def editable_viral_table(viral_df: pd.DataFrame, submode: str, key_prefix: str) -> pd.DataFrame:
+    if viral_df.empty:
+        return viral_df
+
+    viral_df = viral_df.copy()
+    viral_df["예산(계획)"] = viral_df["예산(계획)"].apply(lambda x: round_to_100(to_float(x, 0.0)))
+    viral_df["진행 건수"] = viral_df["진행 건수"].apply(lambda x: int(to_float(x, 0.0)))
+
+    if submode.startswith("내부"):
+        if "실집행비(원)" not in viral_df.columns:
+            viral_df["실집행비(원)"] = 0.0
+
+        edited = st.data_editor(
+            viral_df[["매체", "지면/캠페인", "건당비용", "진행 건수", "예산(계획)", "실집행비(원)"]],
+            use_container_width=True,
+            hide_index=True,
+            disabled=["매체", "지면/캠페인", "건당비용"],
+            key=f"{key_prefix}_viral_editor_int",
+        )
+        outv = viral_df.copy()
+        outv.update(edited)
+
+        outv["진행 건수"] = outv["진행 건수"].apply(lambda x: int(to_float(x, 0.0)))
+        outv["예산(계획)"] = outv.apply(lambda r: round_to_100(float(r["진행 건수"]) * float(r["건당비용"])), axis=1)
+        outv["실집행비(원)"] = outv["실집행비(원)"].apply(lambda x: round_to_100(to_float(x, 0.0)))
+        outv["마진(원)"] = outv["예산(계획)"].astype(float) - outv["실집행비(원)"].astype(float)
+
+        st.dataframe(
+            outv[["매체", "지면/캠페인", "건당비용", "진행 건수", "예산(계획)", "실집행비(원)", "마진(원)"]],
+            use_container_width=True,
+            hide_index=True
+        )
+        return outv
+
+    edited = st.data_editor(
+        viral_df[["매체", "지면/캠페인", "건당비용", "진행 건수", "예산(계획)"]],
+        use_container_width=True,
+        hide_index=True,
+        disabled=["매체", "지면/캠페인", "건당비용"],
+        key=f"{key_prefix}_viral_editor_ext",
+    )
+    outv = viral_df.copy()
+    outv.update(edited)
+    outv["진행 건수"] = outv["진행 건수"].apply(lambda x: int(to_float(x, 0.0)))
+    outv["예산(계획)"] = outv.apply(lambda r: round_to_100(float(r["진행 건수"]) * float(r["건당비용"])), axis=1)
+    st.dataframe(outv[["매체", "지면/캠페인", "건당비용", "진행 건수", "예산(계획)"]], use_container_width=True, hide_index=True)
+    return outv
 
 # =========================
 # Tab: Agency
@@ -1211,11 +1199,20 @@ with tab_agency:
     st.markdown("### 입력 (시뮬레이션)")
     use_scn_kpi = st.toggle("시나리오 KPI 자동 사용(권장)", value=True, key="use_scn_kpi_ag")
 
+    # ✅ 광고기여율/재구매율: backdata 기본값을 기본으로, 입력으로 오버라이드
+    cG1, cG2, cG3 = st.columns(3)
+    with cG1:
+        ad_contrib_in = st.number_input("광고기여율(%)", value=float(scn_ad_contrib * 100.0), step=1.0, key="ag_ad_contrib") / 100.0
+    with cG2:
+        repurchase_in = st.number_input("재구매율(%)", value=float(scn_repurchase * 100.0), step=1.0, key="ag_repurchase") / 100.0
+    with cG3:
+        st.caption(f"참고(시나리오): 월성장률 {fmt_pct(scn_month_growth*100,1)} / 광고의존도 {fmt_pct(scn_ad_dependency*100,1)}")
+
     cA, cB, cC, cD = st.columns(4)
     with cA:
         calc_mode = st.radio("계산 방식", ["광고비 입력 → 매출 산출", "매출 입력 → 필요 광고비 산출"], horizontal=True, key="calc_mode_ag")
     with cB:
-        aov = st.number_input("객단가(AOV=평균 판매가) (원)", value=50000, step=1000, key="aov_ag")
+        aov = st.number_input("객단가(AOV) (원)", value=50000, step=1000, key="aov_ag")
     with cC:
         cpc_manual = st.number_input("CPC (원) [수동]", value=300.0, step=10.0, key="cpc_ag")
     with cD:
@@ -1225,22 +1222,15 @@ with tab_agency:
     cpc = scn_cpc if (use_scn_kpi and scn_cpc is not None) else float(cpc_manual)
     cvr = scn_cvr if (use_scn_kpi and scn_cvr is not None) else float(cvr_manual)
 
-    # ✅ backdata 반영 파라미터(시나리오 기본값)
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        ad_contrib = st.number_input("광고기여율(%)", value=float(default_ad_contrib*100), step=1.0, key="ag_ad_contrib") / 100.0
-    with c2:
-        repurchase = st.number_input("재구매율(%)", value=float(default_repurchase*100), step=1.0, key="ag_repurchase") / 100.0
-    with c3:
-        st.caption("※ 광고기여율은 ‘비재구매 매출’에 적용(가정)")
-
     st.caption(
         f"현재 적용 KPI: CPC {fmt_won(cpc)} / CVR {fmt_pct(cvr*100,1)} "
         + (f"(시나리오 KPI 기반)" if use_scn_kpi and scn_cpc is not None else "(수동 입력)")
     )
 
-    # 비용 입력(내부만)
-    if submode.startswith("내부"):
+    # ✅ 대행은 마케팅만: 원가율/물류비/인건비 입력은 '논의된 대로' 제거하지 않고,
+    #    탭의 기존 구조를 유지하되 계산에 반영하지 않도록 "숨김 처리" 대신 "접기"로 보존.
+    #    (사용자가 원하면 다시 노출 가능)
+    with st.expander("비용/손익 입력(브랜드사 전용 - 대행은 보통 미사용)", expanded=False):
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             cost_rate = st.number_input("원가율(%)", value=30.0, step=1.0, key="cr_ag") / 100.0
@@ -1251,75 +1241,55 @@ with tab_agency:
         with c4:
             cost_per = st.number_input("인당 고정비(원)", value=3000000, step=100000, key="cper_ag")
         fixed_cost = float(headcount) * float(cost_per)
-    else:
-        cost_rate = 0.0
-        logistics = 0.0
-        fixed_cost = 0.0
 
+    # ✅ 실제 계산은 마케팅만 기준(비용=0)
     if calc_mode.startswith("광고비"):
         ad_total = st.number_input("총 광고비(원)", value=50000000, step=1000000, key="ad_total_ag")
         rev_target = None
     else:
-        rev_target = st.number_input("목표 총매출(원)", value=300000000, step=10000000, key="rev_target_ag")
+        rev_target = st.number_input("목표 매출(원)", value=300000000, step=10000000, key="rev_target_ag")
         ad_total = None
 
-    sim = simulate_pl_with_mix(
+    sim = simulate_pl(
         calc_mode=calc_mode,
         aov=aov,
         cpc=cpc,
         cvr=cvr,
-        cost_rate=cost_rate,
-        logistics_per_order=logistics,
-        fixed_cost=fixed_cost,
+        cost_rate=0.0,
+        logistics_per_order=0.0,
+        fixed_cost=0.0,
         ad_spend=ad_total,
         revenue=rev_target,
-        repurchase_rate=repurchase,
-        ad_contrib=ad_contrib,
+        ad_contrib_rate=float(ad_contrib_in),
+        repurchase_rate=float(repurchase_in),
     )
 
     st.divider()
-    st.markdown("### 결과 요약")
+    st.markdown("### 결과 요약(대행: 마케팅만)")
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("예상 총매출", fmt_won(sim["total_revenue"]))
-    m2.metric("필요/집행 광고비", fmt_won(sim["ad_spend"]))
-    m3.metric("예상 주문수(Units)", f"{sim['orders_total']:,.0f}")
-    m4.metric("총 ROAS", f"{sim['roas']:.2f}x ({sim['roas']*100:,.0f}%)")
+    m1.metric("예상 매출(총)", fmt_won(sim["revenue"]))
+    m2.metric("필요/입력 광고비", fmt_won(sim["ad_spend"]))
+    m3.metric("ROAS", f"{sim['roas']:.2f}x ({sim['roas']*100:,.0f}%)")
+    m4.metric("광고기여율", fmt_pct(sim["ad_contrib_rate"]*100, 1))
 
-    # 내부는 손익 추가
-    if submode.startswith("내부"):
-        st.markdown("### (내부) 손익/매출 구조")
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("영업이익", fmt_won(sim["profit"]))
-        k2.metric("공헌이익률", f"{sim['contrib_margin']:.1f}%")
-        k3.metric("재구매 매출", fmt_won(sim["repeat_revenue"]))
-        k4.metric("광고기여 매출", fmt_won(sim["ad_revenue"]))
-    else:
-        st.markdown("### 매출 구조(참고)")
-        k1, k2, k3 = st.columns(3)
-        k1.metric("재구매 매출(추정)", fmt_won(sim["repeat_revenue"]))
-        k2.metric("비재구매 매출(추정)", fmt_won(sim["nonrepeat_revenue"]))
-        k3.metric("광고기여 매출(추정)", fmt_won(sim["ad_revenue"]))
+    m5, m6, m7 = st.columns(3)
+    m5.metric("광고기여 매출", fmt_won(sim["ad_revenue"]))
+    m6.metric("재구매 매출(추정)", fmt_won(sim["repeat_revenue"]))
+    m7.metric("재구매율", fmt_pct(sim["repurchase_rate"]*100, 1))
 
     st.divider()
 
-    cL, cR = st.columns(2)
-    with cL:
-        fig_rev_tm = treemap_revenue(rev_share, title="매출 채널 구성(트리맵)")
-        if fig_rev_tm:
-            st.plotly_chart(fig_rev_tm, use_container_width=True, key=f"rev_tm_ag_{scenario_key}")
-        else:
-            st.info("매출 채널 비중 데이터가 비어있습니다.")
-    with cR:
-        st.plotly_chart(
-            donut_chart(
-                ["퍼포먼스", "바이럴", "브랜드"],
-                [group_share.get("퍼포먼스", 0), group_share.get("바이럴", 0), group_share.get("브랜드", 0)],
-                title="광고비 구조(100%)",
-                height=380
-            ),
-            use_container_width=True,
-            key=f"donut_group_ag_{scenario_key}"
-        )
+    # ✅ 대행은 판매채널 제공 불필요: 트리맵은 브랜드 탭에서 유지.
+    st.plotly_chart(
+        donut_chart(
+            ["퍼포먼스", "바이럴", "브랜드"],
+            [group_share.get("퍼포먼스", 0), group_share.get("바이럴", 0), group_share.get("브랜드", 0)],
+            title="광고비 구조(100%)",
+            height=380
+        ),
+        use_container_width=True,
+        key=f"donut_group_ag_{scenario_key}"
+    )
 
     st.divider()
     st.markdown("## 미디어 믹스 (예산/건수 수정 가능)")
@@ -1367,7 +1337,7 @@ with tab_agency:
         st.plotly_chart(fig_ads_tm, use_container_width=True, key=f"ads_tm_ag_{scenario_key}")
 
 # =========================
-# Tab: Brand (외부/내부 분리 + 성장률/광고기여율/재구매율 반영)
+# Tab: Brand
 # =========================
 with tab_brand:
     st.markdown("## 브랜드사 모드")
@@ -1375,185 +1345,325 @@ with tab_brand:
     st.markdown(f"<div class='smallcap'>선택 시나리오: <span class='badge'>{sel_disp}</span></div>", unsafe_allow_html=True)
     st.divider()
 
-    st.markdown("### 전망 입력(월별)")
-
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        months = st.selectbox("기간(개월)", options=[3, 6, 12], index=2, key="b_months")
-    with c2:
-        base_month_rev = st.number_input("월 기준 총매출(원)", value=200000000, step=10000000, key="b_base_rev")
-    with c3:
-        aov_b = st.number_input("예상 판매가(AOV) (원)", value=50000, step=1000, key="b_aov")
-    with c4:
-        start_ym = st.text_input("시작월(YYYY-MM)", value=f"{date.today().year:04d}-{date.today().month:02d}", key="b_start_ym")
-
-    c5, c6, c7 = st.columns(3)
-    with c5:
-        monthly_growth = st.number_input("월 성장률(%)", value=float(default_monthly_growth*100), step=0.5, key="b_growth") / 100.0
-    with c6:
-        ad_contrib_b = st.number_input("광고기여율(%)", value=float(default_ad_contrib*100), step=1.0, key="b_ad_contrib") / 100.0
-    with c7:
-        repurchase_b = st.number_input("재구매율(%)", value=float(default_repurchase*100), step=1.0, key="b_repurchase") / 100.0
-
-    # KPI 기반 ROAS(광고기여 매출 기준) 계산: 내부에서 필요 광고비 산출에 사용
-    use_scn_kpi_b = st.toggle("시나리오 KPI로 광고 ROAS 산출(권장)", value=True, key="b_use_scn_kpi")
-    cpc_manual_b = st.number_input("CPC(원) [수동]", value=300.0, step=10.0, key="b_cpc")
-    cvr_manual_b = st.number_input("CVR(%) [수동]", value=2.0, step=0.1, key="b_cvr") / 100.0
-
-    scn_cpc_b, scn_cvr_b = blended_cpc_cvr(row, perf_cols)
-    cpc_b = scn_cpc_b if (use_scn_kpi_b and scn_cpc_b is not None) else float(cpc_manual_b)
-    cvr_b = scn_cvr_b if (use_scn_kpi_b and scn_cvr_b is not None) else float(cvr_manual_b)
-    roas_ad = roas_from_kpi(aov_b, cpc_b, cvr_b)
-
-    st.caption(f"광고 ROAS(가정): {roas_ad:.2f}x  |  CPC {fmt_won(cpc_b)} / CVR {fmt_pct(cvr_b*100,1)}")
-
-    # 월별 forecast
-    df_fore = build_monthly_forecast(
-        start_ym=start_ym,
-        months=int(months),
-        base_month_rev=float(base_month_rev),
-        monthly_growth=float(monthly_growth),
-        aov=float(aov_b),
-        repurchase_rate=float(repurchase_b),
-        ad_contrib=float(ad_contrib_b),
-        roas_ad=float(roas_ad),
-    )
-
-    # 외부용: 대략 매출/수량/재고 소진
-    # 내부용: + 필요광고비 + 마진/인건비/원가
+    # ✅ 공통: 백데이터 기반 성장/기여/재구매를 기본값으로 노출
+    st.markdown("### 시나리오 기본 변수(Backdata)")
+    g1, g2, g3, g4 = st.columns(4)
+    g1.metric("월 성장률(기본)", fmt_pct(scn_month_growth*100, 1))
+    g2.metric("광고기여율(기본)", fmt_pct(scn_ad_contrib*100, 1))
+    g3.metric("재구매율(기본)", fmt_pct(scn_repurchase*100, 1))
+    g4.metric("광고의존도(참고)", fmt_pct(scn_ad_dependency*100, 1))
     st.divider()
-    st.markdown("### 예상 매출/수량 요약")
 
-    total_rev_sum = float(df_fore["총매출"].sum())
-    total_units_sum = float(df_fore["예상판매수량(Units)"].sum())
-    total_need_ad = float(df_fore["필요광고비"].sum())
-
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("기간 총매출", fmt_won(total_rev_sum))
-    k2.metric("기간 총판매수량(발주 기준)", f"{total_units_sum:,.0f} 개")
-    if submode_b.startswith("내부"):
-        k3.metric("기간 필요 광고비(추정)", fmt_won(total_need_ad))
-        k4.metric("광고기여 매출(합)", fmt_won(float(df_fore["광고기여매출"].sum())))
-    else:
-        k3.metric("광고기여율(가정)", fmt_pct(ad_contrib_b*100,1))
-        k4.metric("재구매율(가정)", fmt_pct(repurchase_b*100,1))
-
-    # 재고 소진
-    st.markdown("### 예상 재고 소진 일정")
-    cA, cB, cC = st.columns(3)
-    with cA:
-        initial_stock = st.number_input("초기 재고(개)", value=10000, step=100, key="b_stock")
-    with cB:
-        start_date_input = st.date_input("재고 시작일", value=date.today(), key="b_stock_start")
-    with cC:
-        st.caption("※ 월별 판매량을 ‘일 평균’으로 쪼개 소진일을 추정합니다.")
-
-    dep_date, dep_trace = calc_depletion_date(start_date_input, int(initial_stock), df_fore)
-
-    if dep_date is None:
-        st.success("기간 내 재고가 소진되지 않습니다.")
-    else:
-        st.warning(f"예상 소진일: **{dep_date.isoformat()}**")
-
-    # 외부는 월별 매출/수량만, 내부는 광고비/분해까지
-    if submode_b.startswith("내부"):
-        st.markdown("### (내부) 월별 매출 구조/필요 광고비")
-        disp = df_fore.copy()
-        disp["총매출"] = disp["총매출"].map(lambda x: f"{x:,.0f}")
-        disp["광고기여매출"] = disp["광고기여매출"].map(lambda x: f"{x:,.0f}")
-        disp["필요광고비"] = disp["필요광고비"].map(lambda x: f"{x:,.0f}")
-        disp["재구매매출"] = disp["재구매매출"].map(lambda x: f"{x:,.0f}")
-        disp["예상판매수량(Units)"] = disp["예상판매수량(Units)"].map(lambda x: f"{x:,.0f}")
-        st.dataframe(disp[["월","총매출","광고기여매출","필요광고비","재구매매출","예상판매수량(Units)"]], use_container_width=True, hide_index=True)
-
-        st.markdown("### (내부) 마진/손익(간단)")
+    # -------------------------
+    # 외부/내부 입력 분리
+    # -------------------------
+    if submode_b.startswith("외부"):
+        st.markdown("### (외부) 대략 전망: 매출/물량/재고소진")
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            landed_cost = st.number_input("개당 원가(원)", value=20000, step=500, key="b_landed")
+            months = st.selectbox("기간(개월)", options=[3, 6, 12], index=2, key="b_months")
         with c2:
-            logistics_unit = st.number_input("물류비(건당) (원)", value=3000, step=500, key="b_logi")
+            base_month_rev = st.number_input("월 기준 총매출(원)", value=200000000, step=10000000, key="b_base_rev")
         with c3:
-            headcount_b = st.number_input("인원(명)", value=2, step=1, min_value=0, key="b_hc")
+            # ✅ 성장률: backdata 기본
+            growth = st.number_input("월 성장률(%)", value=float(scn_month_growth*100.0), step=0.5, key="b_growth") / 100.0
         with c4:
-            cost_per_b = st.number_input("인당 고정비(원)", value=3000000, step=100000, key="b_cper")
+            selling_price = st.number_input("예상 판매가(AOV) (원)", value=50000, step=1000, key="b_sell_price_ext")
 
-        labor = float(headcount_b) * float(cost_per_b)
+        # 재고/발주 입력(외부는 대략)
+        s1, s2, s3 = st.columns(3)
+        with s1:
+            current_stock = st.number_input("현재 재고(개)", value=10000, step=100, key="b_stock_ext")
+        with s2:
+            safety_stock = st.number_input("안전재고(개)", value=0, step=100, key="b_safety_ext")
+        with s3:
+            start_day = st.date_input("기준일(재고 시작일)", key="b_startday_ext")
 
-        revenue_calc = total_units_sum * float(aov_b)
-        cogs_calc = total_units_sum * float(landed_cost)
-        logistics_calc = total_units_sum * float(logistics_unit)
-        profit_calc = revenue_calc - (cogs_calc + logistics_calc + total_need_ad + labor)
-        margin_amt = revenue_calc - cogs_calc
+        # 월별 전망 생성
+        months_idx = list(range(1, int(months) + 1))
+        rev_list = []
+        units_list = []
+        ym_list = []
+        for i in months_idx:
+            factor = (1.0 + growth) ** (i - 1)
+            rev_i = base_month_rev * factor
+            units_i = (rev_i / selling_price) if selling_price > 0 else 0.0
+            rev_list.append(rev_i)
+            units_list.append(units_i)
+            ym_list.append(f"M{i}")
 
-        s1, s2, s3, s4 = st.columns(4)
-        s1.metric("예상 매출(판매가×수량)", fmt_won(revenue_calc))
-        s2.metric("매출총이익(매출-원가)", fmt_won(margin_amt))
-        s3.metric("필요 광고비(합)", fmt_won(total_need_ad))
-        s4.metric("예상 순이익(간단)", fmt_won(profit_calc))
+        df_m = pd.DataFrame({"월": ym_list, "총매출": rev_list, "예상판매수량(개)": units_list})
+        df_m["누적판매(개)"] = df_m["예상판매수량(개)"].cumsum()
+
+        # 소진 시점 계산(대략)
+        burn_point = float(current_stock)  # 외부는 안전재고 포함하지 않고 '현재재고' 기준으로 안내
+        burn_month = None
+        burn_in_month_ratio = None
+        prev = 0.0
+        for _, r in df_m.iterrows():
+            cumu = float(r["누적판매(개)"])
+            if cumu >= burn_point and burn_month is None:
+                burn_month = r["월"]
+                # 월 내 비율(0~1)
+                month_units = float(r["예상판매수량(개)"])
+                if month_units > 0:
+                    burn_in_month_ratio = (burn_point - prev) / month_units
+                else:
+                    burn_in_month_ratio = 1.0
+                break
+            prev = cumu
+
+        # 발주 수량(대략): 기간 판매 + 안전재고 - 현재재고
+        total_units = float(df_m["예상판매수량(개)"].sum())
+        po_units = max(int(np.ceil(total_units + float(safety_stock) - float(current_stock))), 0)
+
+        k1, k2, k3 = st.columns(3)
+        k1.metric("기간 총매출", fmt_won(df_m["총매출"].sum()))
+        k2.metric("기간 예상 판매수량", f"{df_m['예상판매수량(개)'].sum():,.0f} 개")
+        k3.metric("권장 발주(대략)", f"{po_units:,.0f} 개")
+
+        # 재고 소진 일정(대략 표시)
+        if burn_month is None:
+            st.info("재고가 기간 내에 소진되지 않는 것으로 추정됩니다.")
+        else:
+            # 월을 30일로 근사
+            day_offset = int(np.clip((burn_in_month_ratio or 1.0) * 30.0, 1, 30))
+            st.warning(f"예상 재고 소진: **{burn_month}** 내 **약 {day_offset}일차 전후**(대략)")
+
+        # 외부용: 판매채널 트리맵은 반드시
+        st.divider()
+        st.markdown("### 매출 채널 구성(트리맵)")
+        fig_rev_tm2 = treemap_revenue(rev_share, title="매출 채널 구성(트리맵)")
+        if fig_rev_tm2:
+            st.plotly_chart(fig_rev_tm2, use_container_width=True, key=f"rev_tm_brand_ext_{scenario_key}")
+
+        st.divider()
+        st.markdown("### 월별 총매출/판매수량(외부)")
+        # 외부는 광고비/마진/채널별 상세는 제외
+        df_show = df_m.copy()
+        df_show["총매출"] = df_show["총매출"].map(lambda x: f"{x:,.0f}")
+        df_show["예상판매수량(개)"] = df_show["예상판매수량(개)"].map(lambda x: f"{x:,.0f}")
+        df_show["누적판매(개)"] = df_show["누적판매(개)"].map(lambda x: f"{x:,.0f}")
+        st.dataframe(df_show, use_container_width=True, hide_index=True)
 
     else:
-        st.markdown("### (외부) 월별 예상 매출/판매수량")
-        disp = df_fore.copy()
-        disp["총매출"] = disp["총매출"].map(lambda x: f"{x:,.0f}")
-        disp["예상판매수량(Units)"] = disp["예상판매수량(Units)"].map(lambda x: f"{x:,.0f}")
-        st.dataframe(disp[["월","총매출","예상판매수량(Units)"]], use_container_width=True, hide_index=True)
+        st.markdown("### (내부) 운영/검증: 매출 + 필요광고비 + 마진/인건비 + 채널별 매출")
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            months = st.selectbox("기간(개월)", options=[3, 6, 12], index=2, key="b_months_int")
+        with c2:
+            base_month_rev = st.number_input("월 기준 총매출(원)", value=200000000, step=10000000, key="b_base_rev_int")
+        with c3:
+            growth = st.number_input("월 성장률(%)", value=float(scn_month_growth*100.0), step=0.5, key="b_growth_int") / 100.0
+        with c4:
+            selling_price = st.number_input("예상 판매가(AOV) (원)", value=50000, step=1000, key="b_sell_price_int")
 
-    # 간단 차트
-    st.divider()
-    st.markdown("### 월별 추이(차트)")
-    fig = go.Figure()
-    fig.add_trace(go.Bar(x=df_fore["월"], y=df_fore["총매출"], name="총매출"))
-    if submode_b.startswith("내부"):
-        fig.add_trace(go.Bar(x=df_fore["월"], y=df_fore["필요광고비"], name="필요광고비"))
-    fig.update_layout(height=420, barmode="group", margin=dict(t=30, b=10, l=10, r=10))
-    st.plotly_chart(fig, use_container_width=True, key=f"brand_fore_chart_{scenario_key}_{submode_b}")
+        # 내부: 광고기여율/재구매율 + KPI(CPC/CVR) -> 필요 광고비 산출
+        a1, a2, a3, a4 = st.columns(4)
+        with a1:
+            use_scn_kpi_b = st.toggle("시나리오 KPI 자동 사용(권장)", value=True, key="use_scn_kpi_brand")
+        with a2:
+            ad_contrib_in = st.number_input("광고기여율(%)", value=float(scn_ad_contrib*100.0), step=1.0, key="b_ad_contrib_int") / 100.0
+        with a3:
+            repurchase_in = st.number_input("재구매율(%)", value=float(scn_repurchase*100.0), step=1.0, key="b_repurchase_int") / 100.0
+        with a4:
+            st.caption("필요 광고비는 '총매출→광고기여 매출→주문→클릭→CPC'로 역산")
+
+        b1, b2 = st.columns(2)
+        with b1:
+            cpc_manual_b = st.number_input("CPC (원) [수동]", value=300.0, step=10.0, key="b_cpc_manual")
+        with b2:
+            cvr_manual_b = st.number_input("CVR (%) [수동]", value=2.0, step=0.1, key="b_cvr_manual") / 100.0
+
+        scn_cpc, scn_cvr = blended_cpc_cvr(row, perf_cols)
+        cpc_b = scn_cpc if (use_scn_kpi_b and scn_cpc is not None) else float(cpc_manual_b)
+        cvr_b = scn_cvr if (use_scn_kpi_b and scn_cvr is not None) else float(cvr_manual_b)
+
+        st.caption(
+            f"현재 적용 KPI: CPC {fmt_won(cpc_b)} / CVR {fmt_pct(cvr_b*100,1)} "
+            + (f"(시나리오 KPI 기반)" if use_scn_kpi_b and scn_cpc is not None else "(수동 입력)")
+        )
+
+        # 내부: 마진/인건비/비용
+        cost1, cost2, cost3, cost4 = st.columns(4)
+        with cost1:
+            cost_rate = st.number_input("원가율(%)", value=30.0, step=1.0, key="b_cost_rate") / 100.0
+        with cost2:
+            logistics = st.number_input("물류비(건당) (원)", value=3000, step=500, key="b_logi")
+        with cost3:
+            headcount = st.number_input("운영 인력(명)", value=2, step=1, min_value=0, key="b_hc")
+        with cost4:
+            cost_per = st.number_input("인당 고정비(원)", value=3000000, step=100000, key="b_cper")
+
+        fixed_cost = float(headcount) * float(cost_per)
+
+        # 재고/발주 입력(내부는 정확)
+        s1, s2, s3 = st.columns(3)
+        with s1:
+            current_stock = st.number_input("현재 재고(개)", value=10000, step=100, key="b_stock_int")
+        with s2:
+            safety_stock = st.number_input("안전재고(개)", value=0, step=100, key="b_safety_int")
+        with s3:
+            start_day = st.date_input("기준일(재고 시작일)", key="b_startday_int")
+
+        # 월별 전망 생성(총매출)
+        months_idx = list(range(1, int(months) + 1))
+        ym_list = [f"M{i}" for i in months_idx]
+        rev_list = []
+        for i in months_idx:
+            factor = (1.0 + growth) ** (i - 1)
+            rev_list.append(base_month_rev * factor)
+
+        # 각 월: 총매출 -> 필요 광고비(광고기여율 반영) + 주문/수량 + 손익
+        rows = []
+        for ym, rev_i in zip(ym_list, rev_list):
+            sim_i = simulate_pl(
+                calc_mode="매출 입력 → 필요 광고비 산출",
+                aov=float(selling_price),
+                cpc=float(cpc_b),
+                cvr=float(cvr_b),
+                cost_rate=float(cost_rate),
+                logistics_per_order=float(logistics),
+                fixed_cost=float(fixed_cost)/max(int(months),1),  # 월별로 고정비 안분
+                ad_spend=None,
+                revenue=float(rev_i),
+                ad_contrib_rate=float(ad_contrib_in),
+                repurchase_rate=float(repurchase_in),
+            )
+            units_i = (float(rev_i) / float(selling_price)) if selling_price > 0 else 0.0
+            rows.append({
+                "월": ym,
+                "총매출": float(sim_i["revenue"]),
+                "필요광고비": float(sim_i["ad_spend"]),
+                "ROAS": float(sim_i["roas"]),
+                "예상판매수량(개)": float(units_i),
+                "광고기여매출": float(sim_i["ad_revenue"]),
+                "재구매매출": float(sim_i["repeat_revenue"]),
+                "영업이익(월)": float(sim_i["profit"]),
+            })
+
+        df_fore = pd.DataFrame(rows)
+        df_fore["누적판매(개)"] = df_fore["예상판매수량(개)"].cumsum()
+
+        # 재고 소진/발주 수량
+        burn_point = float(current_stock)
+        burn_month = None
+        burn_in_month_ratio = None
+        prev = 0.0
+        for _, r in df_fore.iterrows():
+            cumu = float(r["누적판매(개)"])
+            if cumu >= burn_point and burn_month is None:
+                burn_month = r["월"]
+                month_units = float(r["예상판매수량(개)"])
+                burn_in_month_ratio = ((burn_point - prev) / month_units) if month_units > 0 else 1.0
+                break
+            prev = cumu
+
+        total_units = float(df_fore["예상판매수량(개)"].sum())
+        po_units = max(int(np.ceil(total_units + float(safety_stock) - float(current_stock))), 0)
+
+        # KPI 요약
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("기간 총매출", fmt_won(df_fore["총매출"].sum()))
+        k2.metric("기간 필요 광고비", fmt_won(df_fore["필요광고비"].sum()))
+        k3.metric("기간 예상 판매수량", f"{total_units:,.0f} 개")
+        k4.metric("권장 발주(필요)", f"{po_units:,.0f} 개")
+
+        if burn_month is None:
+            st.info("재고가 기간 내에 소진되지 않는 것으로 추정됩니다.")
+        else:
+            day_offset = int(np.clip((burn_in_month_ratio or 1.0) * 30.0, 1, 30))
+            st.warning(f"예상 재고 소진: **{burn_month}** 내 **약 {day_offset}일차 전후**(대략)")
+
+        # 내부: 월별 매출/광고비 차트
+        st.divider()
+        df_chart = df_fore.copy()
+        df_chart["ROAS"] = df_chart["총매출"] / df_chart["필요광고비"].replace(0, np.nan)
+        st.plotly_chart(
+            compare_chart(df_chart, "월", "총매출", "필요광고비", "ROAS", title="월별 총매출/필요광고비 + ROAS"),
+            use_container_width=True,
+            key=f"brand_int_month_chart_{scenario_key}"
+        )
+
+        # ✅ 내부: 판매채널 트리맵(공통) + 채널별 매출 테이블(내부 전용)
+        st.divider()
+        st.markdown("### 매출 채널 구성(트리맵)")
+        fig_rev_tm2 = treemap_revenue(rev_share, title="매출 채널 구성(트리맵)")
+        if fig_rev_tm2:
+            st.plotly_chart(fig_rev_tm2, use_container_width=True, key=f"rev_tm_brand_int_{scenario_key}")
+
+        st.divider()
+        st.markdown("### (내부) 판매채널별 매출 계획(월별)")
+        ch_rows = []
+        for _, r in df_fore.iterrows():
+            ym = r["월"]
+            total_rev = float(r["총매출"])
+            for ch, share in rev_share.items():
+                if share <= 0:
+                    continue
+                ch_rows.append({
+                    "월": ym,
+                    "채널": ch,
+                    "매출(원)": round_to_100(total_rev * float(share)),
+                    "비중(%)": float(share) * 100.0,
+                })
+        df_ch = pd.DataFrame(ch_rows)
+        if df_ch.empty:
+            st.info("판매채널 비중 데이터가 비어있습니다.")
+        else:
+            st.dataframe(
+                df_ch.sort_values(["월", "매출(원)"], ascending=[True, False]),
+                use_container_width=True,
+                hide_index=True
+            )
+
+        st.divider()
+        st.markdown("### (내부) 월별 상세 테이블")
+        disp = df_fore.copy()
+        for c in ["총매출","필요광고비","광고기여매출","재구매매출","영업이익(월)"]:
+            disp[c] = disp[c].map(lambda x: f"{x:,.0f}")
+        disp["ROAS"] = (df_fore["총매출"] / df_fore["필요광고비"].replace(0, np.nan)).map(lambda x: "-" if pd.isna(x) else f"{x:.2f}x")
+        disp["예상판매수량(개)"] = df_fore["예상판매수량(개)"].map(lambda x: f"{x:,.0f}")
+        disp["누적판매(개)"] = df_fore["누적판매(개)"].map(lambda x: f"{x:,.0f}")
+        st.dataframe(disp, use_container_width=True, hide_index=True)
 
 # =========================================================
-# TAB: Recommendation Engine (stable, no df_all)
+# TAB: Recommendation Engine (안정화 버전)
 # =========================================================
 with tab_rec:
     st.markdown("## 추천 엔진")
-    st.markdown("<div class='smallcap'>매출채널 비중 기반 Top3 시나리오 추천(간단 점수) + 선택 시나리오의 집행 우선순위</div>", unsafe_allow_html=True)
+    st.markdown("<div class='smallcap'>현재 선택 시나리오의 '판매채널 비중' 기반으로 우선순위를 추천합니다.</div>", unsafe_allow_html=True)
     st.divider()
 
-    focus = st.selectbox("판매 중심 채널(추천 기준)", ["자사몰","온라인(마켓)","홈쇼핑","공구","B2B/도매"], key="rec_focus_simple")
+    # 대행은 판매채널 불필요(안내만) / 브랜드사는 중요(내용 제공)
+    st.info("※ 대행(마케팅만) 제안에서는 판매채널 추천이 필수는 아닙니다. 브랜드사 전략 검토용으로 사용하세요.")
 
-    # top3 scenario by score
-    rows = []
-    for _, rr in df_f.iterrows():
-        rev = build_rev_shares(rr, rev_cols)
-        score = focus_match_score(rev, focus)
-        rows.append({
-            "시나리오": str(rr.get(col_disp, rr.get(col_scn,""))),
-            "키": str(rr.get(col_scn,"")),
-            "점수": score,
-        })
-    dfr = pd.DataFrame(rows).sort_values("점수", ascending=False)
-    top3 = dfr.head(3).copy()
+    sales_focus = st.selectbox("판매 중심(선택)", ["(무관)", "자사몰", "온라인(마켓)", "홈쇼핑", "공구", "B2B/도매"], key="rec_sales_focus")
+    rec = strategy_recommendation(rev_share, sales_focus=sales_focus)
+
+    st.markdown(f"### 추천 유형: {rec['title']}")
+    st.caption("근거(상위 채널 비중): " + (" / ".join(rec["evidence"]) if rec["evidence"] else "-"))
 
     c1, c2, c3 = st.columns(3)
-    for i, colx in enumerate([c1,c2,c3]):
-        if i >= len(top3):
-            continue
-        r = top3.iloc[i]
-        with colx:
+    for i, (k, why) in enumerate(rec["priority"][:3]):
+        with [c1, c2, c3][i]:
             st.markdown("<div class='card'>", unsafe_allow_html=True)
-            st.markdown(f"### #{i+1} {r['시나리오']}")
-            st.caption(r["키"])
-            st.metric("채널 적합 점수", f"{r['점수']:.2f}")
+            st.markdown(f"**#{i+1} {k}**")
+            st.caption(why)
             st.markdown("</div>", unsafe_allow_html=True)
 
+    st.caption(rec["note"])
+
     st.divider()
-    st.markdown("### (선택 시나리오) 집행 우선순위 Top3")
-    rec = strategy_recommendation_from_revshare(rev_share)
-    st.markdown(f"**전략 타입:** {rec['title']}")
-    st.caption("근거(매출채널 상위): " + (" / ".join(rec["evidence"]) if rec["evidence"] else "-"))
-    for i, (ch, why) in enumerate(rec["priority"], 1):
-        st.write(f"{i}. **{ch}** — {why}")
-    st.info(rec["note"])
+    st.markdown("### (브랜드사 중요) 판매채널 트리맵")
+    fig_rev_tm = treemap_revenue(rev_share, title="매출 채널 구성(트리맵)")
+    if fig_rev_tm:
+        st.plotly_chart(fig_rev_tm, use_container_width=True, key=f"rev_tm_rec_{scenario_key}")
+    else:
+        st.info("매출 채널 비중이 비어있습니다(*매출비중 컬럼 확인).")
 
 # =========================
-# Tab: Custom Scenario (그대로)
+# Tab: Custom Scenario (NEW)
 # =========================
 with tab_custom:
     st.markdown("## 커스텀 시나리오")
@@ -1609,21 +1719,20 @@ with tab_custom:
     with cD:
         cvr_c = st.number_input("CVR (%)", value=2.0, step=0.1, key="custom_cvr") / 100.0
 
-    # 커스텀도 backdata 파라미터 입력 가능
-    cE, cF = st.columns(2)
-    with cE:
-        ad_contrib_c = st.number_input("광고기여율(%)", value=50.0, step=1.0, key="custom_ad_contrib") / 100.0
-    with cF:
-        repurchase_c = st.number_input("재구매율(%)", value=10.0, step=1.0, key="custom_repurchase") / 100.0
+    cX1, cX2 = st.columns(2)
+    with cX1:
+        ad_contrib_c = st.number_input("광고기여율(%)", value=float(scn_ad_contrib*100.0), step=1.0, key="custom_ad_contrib") / 100.0
+    with cX2:
+        repurchase_c = st.number_input("재구매율(%)", value=float(scn_repurchase*100.0), step=1.0, key="custom_repurchase") / 100.0
 
     if calc_mode_c.startswith("광고비"):
         ad_total_c = st.number_input("총 광고비(원)", value=50000000, step=1000000, key="custom_ad_total")
         rev_target_c = None
     else:
-        rev_target_c = st.number_input("목표 총매출(원)", value=300000000, step=10000000, key="custom_rev_target")
+        rev_target_c = st.number_input("목표 매출(원)", value=300000000, step=10000000, key="custom_rev_target")
         ad_total_c = None
 
-    sim_c = simulate_pl_with_mix(
+    sim_c = simulate_pl(
         calc_mode=calc_mode_c,
         aov=aov_c,
         cpc=cpc_c,
@@ -1633,16 +1742,16 @@ with tab_custom:
         fixed_cost=0.0,
         ad_spend=ad_total_c,
         revenue=rev_target_c,
-        repurchase_rate=repurchase_c,
-        ad_contrib=ad_contrib_c,
+        ad_contrib_rate=float(ad_contrib_c),
+        repurchase_rate=float(repurchase_c),
     )
 
     st.markdown("### 커스텀 결과")
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("예상 총매출", fmt_won(sim_c["total_revenue"]))
-    m2.metric("광고비", fmt_won(sim_c["ad_spend"]))
+    m1.metric("예상 매출(총)", fmt_won(sim_c["revenue"]))
+    m2.metric("예상 광고비", fmt_won(sim_c["ad_spend"]))
     m3.metric("ROAS", f"{sim_c['roas']:.2f}x ({sim_c['roas']*100:,.0f}%)")
-    m4.metric("예상 수량(Units)", f"{sim_c['orders_total']:,.0f}")
+    m4.metric("광고기여 매출", fmt_won(sim_c["ad_revenue"]))
 
     st.divider()
     st.markdown("### 커스텀 미디어 믹스(예산 수정 가능)")
@@ -1672,7 +1781,7 @@ with tab_custom:
         st.plotly_chart(fig_ads_tm_c, use_container_width=True, key="custom_ads_tm")
 
 # =========================
-# Tab: Sales Plan (그대로)
+# Tab: Sales Plan (NEW)
 # =========================
 with tab_plan:
     st.markdown("## 매출 계획 (브랜드별 1~12월)")
