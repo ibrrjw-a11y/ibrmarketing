@@ -743,233 +743,51 @@ def rev_bucket(channel_name: str) -> str:
         return "오프라인"
     return "온라인(기타)"
 
-import colorsys
-
-def _hls_to_hex(h, l, s):
-    r, g, b = colorsys.hls_to_rgb(h, l, s)
-    return "#{:02x}{:02x}{:02x}".format(int(r*255), int(g*255), int(b*255))
-
 def treemap_revenue(rev_share: Dict[str, float], height=380, title="매출 채널 구성(트리맵)"):
-    """
-    ✅ 목표: 매출 트리맵도 예시처럼
-    - 그룹(자사몰/스마트스토어/쿠팡/오프라인/온라인기타)별 Hue 고정
-    - 같은 그룹 내에서는 비중(크기)에 따라 진하기만 변화
-    """
     rows = []
-    for ch, v in (rev_share or {}).items():
-        if float(v or 0) <= 0:
+    for ch, v in rev_share.items():
+        if v <= 0:
             continue
-        rows.append({"그룹": rev_bucket(ch), "채널": str(ch), "비중": float(v)})
-
+        rows.append({"그룹": rev_bucket(ch), "채널": ch, "비중": float(v)})
     if not rows:
         return None
-
     df = pd.DataFrame(rows)
-
-    # ✅ 그룹별 고정 Hue (원하는 톤 있으면 여기만 바꾸면 됨)
-    group_hue = {
-        "자사몰": 0.60,        # 블루
-        "스마트스토어": 0.55,  # 블루-청록 사이
-        "쿠팡": 0.58,          # 블루 계열 유지
-        "오프라인": 0.72,      # 퍼플/바이올렛
-        "온라인(기타)": 0.60,  # 블루(연톤)
-    }
-
-    # 그룹 내 진하기 기준: 채널 비중(leaf) 0~1 정규화
-    g_minmax = df.groupby("그룹")["비중"].agg(["min", "max"]).reset_index()
-    g_min = dict(zip(g_minmax["그룹"], g_minmax["min"]))
-    g_max = dict(zip(g_minmax["그룹"], g_minmax["max"]))
-
-    def within_norm(g, v):
-        mn, mx = float(g_min.get(g, 0)), float(g_max.get(g, 0))
-        if mx <= mn:
-            return 1.0
-        return (float(v) - mn) / (mx - mn)
-
-    df["t"] = df.apply(lambda r: within_norm(r["그룹"], r["비중"]), axis=1)
-
-    labels, parents, values, colors, ids = [], [], [], [], []
-
-    # 그룹 노드
-    grp_sum = df.groupby("그룹")["비중"].sum().to_dict()
-    for g, v in grp_sum.items():
-        labels.append(g)
-        parents.append("")
-        values.append(float(v))
-        ids.append(f"grp::{g}")
-
-        h = group_hue.get(g, 0.60)
-        colors.append(_hls_to_hex(h, l=0.50, s=0.55))
-
-    # 채널 노드
-    for _, r in df.iterrows():
-        g = r["그룹"]
-        name = r["채널"]
-        v = float(r["비중"])
-        t = float(r["t"])
-
-        labels.append(name)
-        parents.append(g)
-        values.append(v)
-        ids.append(f"leaf::{g}::{name}")
-
-        h = group_hue.get(g, 0.60)
-        # 큰 채널일수록 더 진하게
-        l = 0.88 - (0.50 * t)   # 필요하면 0.65로 키우면 더 극적
-        s = 0.55
-        colors.append(_hls_to_hex(h, l=l, s=s))
-
-    fig = go.Figure(go.Treemap(
-        labels=labels,
-        parents=parents,
-        values=values,
-        ids=ids,
-        branchvalues="total",
-        marker=dict(
-            colors=colors,
-            line=dict(width=2, color="rgba(255,255,255,0.85)")
-        ),
-        textinfo="label+value",
-        textfont=dict(color="white", size=14),
-        hovertemplate="%{label}<br>%{value:.1%}<extra></extra>",
-    ))
-
-    fig.update_layout(
-        height=height,
-        title=title,
-        margin=dict(t=50, b=10, l=10, r=10),
+    fig = px.treemap(df, path=["그룹", "채널"], values="비중", color="채널")
+    fig.update_layout(height=height, margin=dict(t=50, b=10, l=10, r=10), title=title)
+    fig.update_traces(
+        texttemplate="%{label}<br>%{value:.1%}",
+        marker=dict(line=dict(width=2, color="rgba(255,255,255,0.85)"))
     )
     return fig
-
-
-
-import colorsys
-
-def _hls_to_hex(h, l, s):
-    r, g, b = colorsys.hls_to_rgb(h, l, s)
-    return "#{:02x}{:02x}{:02x}".format(int(r*255), int(g*255), int(b*255))
 
 def treemap_ads(perf_df: pd.DataFrame, viral_df: pd.DataFrame, height=430, title="광고 믹스(트리맵)"):
-    """
-    ✅ 목표: 예시처럼
-    - 그룹(퍼포먼스/바이럴/브랜드)별로 색 계열(Hue) 고정
-    - 같은 그룹 안에서는 예산(타일 크기)에 따라 진하기(Lightness)만 변화
-    - 알록달록 color="지면" 방식 제거
-    """
-
     rows = []
-
-    # 퍼포먼스
     if perf_df is not None and not perf_df.empty:
         for _, r in perf_df.iterrows():
-            bud = float(r.get("예산(계획)", 0) or 0)
-            if bud <= 0:
-                continue
             rows.append({
                 "그룹": "퍼포먼스",
-                "매체": str(r.get("매체", "")),
-                "지면": str(r.get("지면/캠페인", "")) if str(r.get("지면/캠페인", "")).strip() else str(r.get("매체", "")),
-                "예산": bud
+                "매체": r.get("매체",""),
+                "지면": r.get("지면/캠페인","") or r.get("매체",""),
+                "예산": float(r.get("예산(계획)",0) or 0)
             })
-
-    # 바이럴
     if viral_df is not None and not viral_df.empty:
         for _, r in viral_df.iterrows():
-            bud = float(r.get("예산(계획)", 0) or 0)
-            if bud <= 0:
-                continue
             rows.append({
                 "그룹": "바이럴",
-                "매체": str(r.get("매체", "")),
-                "지면": str(r.get("지면/캠페인", "")),
-                "예산": bud
+                "매체": r.get("매체",""),
+                "지면": r.get("지면/캠페인",""),
+                "예산": float(r.get("예산(계획)",0) or 0)
             })
-
     if not rows:
         return None
-
     df = pd.DataFrame(rows)
+    df = df[df["예산"] > 0]
     if df.empty:
         return None
-
-    # ✅ 그룹별 고정 Hue (원하면 여기만 톤 바꿔)
-    group_hue = {
-        "퍼포먼스": 0.60,  # 블루
-        "바이럴":   0.07,  # 오렌지
-        "브랜드":   0.00,  # (안 쓰면 무시됨)
-    }
-
-    # 그룹 내 진하기 기준: "지면 예산"을 0~1로 정규화 (큰 타일일수록 진하게)
-    g_minmax = df.groupby("그룹")["예산"].agg(["min", "max"]).reset_index()
-    g_min = dict(zip(g_minmax["그룹"], g_minmax["min"]))
-    g_max = dict(zip(g_minmax["그룹"], g_minmax["max"]))
-
-    def within_norm(g, v):
-        mn, mx = float(g_min.get(g, 0)), float(g_max.get(g, 0))
-        if mx <= mn:
-            return 1.0
-        return (float(v) - mn) / (mx - mn)
-
-    df["t"] = df.apply(lambda r: within_norm(r["그룹"], r["예산"]), axis=1)  # 0~1
-
-    # Treemap 노드 구성: 그룹(루트) -> 지면(leaf)
-    labels, parents, values, colors, ids = [], [], [], [], []
-
-    # 그룹 노드
-    grp_sum = df.groupby("그룹")["예산"].sum().to_dict()
-    for g, v in grp_sum.items():
-        labels.append(g)
-        parents.append("")
-        values.append(float(v))
-        ids.append(f"grp::{g}")
-
-        h = group_hue.get(g, 0.6)
-        colors.append(_hls_to_hex(h, l=0.50, s=0.55))  # 그룹 헤더는 중간톤
-
-    # leaf 노드 (지면)
-    for _, r in df.iterrows():
-        g = r["그룹"]
-        name = r["지면"]
-        v = float(r["예산"])
-        t = float(r["t"])  # 0~1
-
-        labels.append(name)
-        parents.append(g)
-        values.append(v)
-        ids.append(f"leaf::{g}::{name}")
-
-        h = group_hue.get(g, 0.6)
-
-        # ✅ 예시처럼 “큰 타일 = 더 진하게”
-        # 밝은(작은) 0.85 ~ 진한(큰) 0.35
-        l = 0.85 - (0.50 * t)
-        s = 0.60
-        colors.append(_hls_to_hex(h, l=l, s=s))
-
-    fig = go.Figure(go.Treemap(
-        labels=labels,
-        parents=parents,
-        values=values,
-        ids=ids,
-        branchvalues="total",
-        marker=dict(
-            colors=colors,
-            line=dict(width=2, color="rgba(255,255,255,0.85)")
-        ),
-        # 예시처럼 중앙에 흰 글씨 느낌
-        textinfo="label+value",
-        textfont=dict(color="white", size=14),
-        hovertemplate="%{label}<br>%{value:,.0f}원<extra></extra>",
-    ))
-
-    fig.update_layout(
-        height=height,
-        title=title,
-        margin=dict(t=50, b=10, l=10, r=10),
-    )
+    fig = px.treemap(df, path=["그룹", "매체", "지면"], values="예산", color="지면")
+    fig.update_layout(height=height, margin=dict(t=50, b=10, l=10, r=10), title=title)
+    fig.update_traces(marker=dict(line=dict(width=2, color="rgba(255,255,255,0.85)")))
     return fig
-
-
 
 # =========================
 # Compare chart
