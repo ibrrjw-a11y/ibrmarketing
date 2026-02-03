@@ -745,14 +745,24 @@ def rev_bucket(channel_name: str) -> str:
 
 def treemap_revenue(rev_share: Dict[str, float], height=380, title="매출 채널 구성(트리맵)"):
     rows = []
-    for ch, v in rev_share.items():
+    for ch, v in (rev_share or {}).items():
         if v <= 0:
             continue
         rows.append({"그룹": rev_bucket(ch), "채널": ch, "비중": float(v)})
+
     if not rows:
         return None
+
     df = pd.DataFrame(rows)
-    fig = px.treemap(df, path=["그룹", "채널"], values="비중", color="채널")
+
+    # ✅ 핵심: 색상을 '그룹' 기준으로 고정 → 그룹별 1색(알록달록 방지)
+    fig = px.treemap(
+        df,
+        path=["그룹", "채널"],
+        values="비중",
+        color="그룹",
+    )
+
     fig.update_layout(height=height, margin=dict(t=50, b=10, l=10, r=10), title=title)
     fig.update_traces(
         texttemplate="%{label}<br>%{value:.1%}",
@@ -760,34 +770,56 @@ def treemap_revenue(rev_share: Dict[str, float], height=380, title="매출 채�
     )
     return fig
 
-def treemap_ads(perf_df: pd.DataFrame, viral_df: pd.DataFrame, height=430, title="광고 믹스(트리맵)"):
+
+def treemap_ads(perf_df: pd.DataFrame, viral_df: pd.DataFrame, height=430, title="광고 믹스(트리맵: 퍼포먼스/바이럴 색 구분)"):
+    """
+    광고 믹스 트리맵
+    - 퍼포먼스/바이럴을 1차 그룹으로 크게 구분
+    - 2차는 '매체'까지만 보여서 너무 잘게 쪼개지는 문제 방지
+    - 색상도 그룹 기준으로 통일(퍼포먼스 vs 바이럴 한눈에)
+    """
     rows = []
+
+    # 퍼포먼스
     if perf_df is not None and not perf_df.empty:
         for _, r in perf_df.iterrows():
             rows.append({
                 "그룹": "퍼포먼스",
-                "매체": r.get("매체",""),
-                "지면": r.get("지면/캠페인","") or r.get("매체",""),
-                "예산": float(r.get("예산(계획)",0) or 0)
+                "매체": str(r.get("매체", "") or "").strip(),
+                "예산": float(r.get("예산(계획)", 0) or 0),
             })
+
+    # 바이럴
     if viral_df is not None and not viral_df.empty:
         for _, r in viral_df.iterrows():
             rows.append({
                 "그룹": "바이럴",
-                "매체": r.get("매체",""),
-                "지면": r.get("지면/캠페인",""),
-                "예산": float(r.get("예산(계획)",0) or 0)
+                "매체": str(r.get("매체", "") or "").strip(),
+                "예산": float(r.get("예산(계획)", 0) or 0),
             })
+
     if not rows:
         return None
+
     df = pd.DataFrame(rows)
+    df["예산"] = df["예산"].fillna(0.0).astype(float)
     df = df[df["예산"] > 0]
+
     if df.empty:
         return None
-    fig = px.treemap(df, path=["그룹", "매체", "지면"], values="예산", color="지면")
+
+    # ✅ 핵심: path를 ["그룹","매체"]까지만 (지면 제거)
+    # ✅ 핵심: color를 "그룹"으로 고정해서 퍼포먼스/바이럴 색이 확실히 구분되게
+    fig = px.treemap(
+        df,
+        path=["그룹", "매체"],
+        values="예산",
+        color="그룹",
+    )
     fig.update_layout(height=height, margin=dict(t=50, b=10, l=10, r=10), title=title)
     fig.update_traces(marker=dict(line=dict(width=2, color="rgba(255,255,255,0.85)")))
     return fig
+
 
 # =========================
 # Compare chart
