@@ -771,54 +771,132 @@ def treemap_revenue(rev_share: Dict[str, float], height=380, title="매출 채�
     return fig
 
 
-def treemap_ads(perf_df: pd.DataFrame, viral_df: pd.DataFrame, height=430, title="광고 믹스(트리맵: 퍼포먼스/바이럴 색 구분)"):
+import colorsys
+
+def _hls_to_hex(h, l, s):
+    r, g, b = colorsys.hls_to_rgb(h, l, s)
+    return "#{:02x}{:02x}{:02x}".format(int(r*255), int(g*255), int(b*255))
+
+def treemap_ads(perf_df: pd.DataFrame, viral_df: pd.DataFrame, height=430, title="광고 믹스(트리맵)"):
     """
-    광고 믹스 트리맵
-    - 퍼포먼스/바이럴을 1차 그룹으로 크게 구분
-    - 2차는 '매체'까지만 보여서 너무 잘게 쪼개지는 문제 방지
-    - 색상도 그룹 기준으로 통일(퍼포먼스 vs 바이럴 한눈에)
+    ✅ 목표: 예시처럼
+    - 그룹(퍼포먼스/바이럴/브랜드)별로 색 계열(Hue) 고정
+    - 같은 그룹 안에서는 예산(타일 크기)에 따라 진하기(Lightness)만 변화
+    - 알록달록 color="지면" 방식 제거
     """
+
     rows = []
 
     # 퍼포먼스
     if perf_df is not None and not perf_df.empty:
         for _, r in perf_df.iterrows():
+            bud = float(r.get("예산(계획)", 0) or 0)
+            if bud <= 0:
+                continue
             rows.append({
                 "그룹": "퍼포먼스",
-                "매체": str(r.get("매체", "") or "").strip(),
-                "예산": float(r.get("예산(계획)", 0) or 0),
+                "매체": str(r.get("매체", "")),
+                "지면": str(r.get("지면/캠페인", "")) if str(r.get("지면/캠페인", "")).strip() else str(r.get("매체", "")),
+                "예산": bud
             })
 
     # 바이럴
     if viral_df is not None and not viral_df.empty:
         for _, r in viral_df.iterrows():
+            bud = float(r.get("예산(계획)", 0) or 0)
+            if bud <= 0:
+                continue
             rows.append({
                 "그룹": "바이럴",
-                "매체": str(r.get("매체", "") or "").strip(),
-                "예산": float(r.get("예산(계획)", 0) or 0),
+                "매체": str(r.get("매체", "")),
+                "지면": str(r.get("지면/캠페인", "")),
+                "예산": bud
             })
 
     if not rows:
         return None
 
     df = pd.DataFrame(rows)
-    df["예산"] = df["예산"].fillna(0.0).astype(float)
-    df = df[df["예산"] > 0]
-
     if df.empty:
         return None
 
-    # ✅ 핵심: path를 ["그룹","매체"]까지만 (지면 제거)
-    # ✅ 핵심: color를 "그룹"으로 고정해서 퍼포먼스/바이럴 색이 확실히 구분되게
-    fig = px.treemap(
-        df,
-        path=["그룹", "매체"],
-        values="예산",
-        color="그룹",
+    # ✅ 그룹별 고정 Hue (원하면 여기만 톤 바꿔)
+    group_hue = {
+        "퍼포먼스": 0.60,  # 블루
+        "바이럴":   0.07,  # 오렌지
+        "브랜드":   0.00,  # (안 쓰면 무시됨)
+    }
+
+    # 그룹 내 진하기 기준: "지면 예산"을 0~1로 정규화 (큰 타일일수록 진하게)
+    g_minmax = df.groupby("그룹")["예산"].agg(["min", "max"]).reset_index()
+    g_min = dict(zip(g_minmax["그룹"], g_minmax["min"]))
+    g_max = dict(zip(g_minmax["그룹"], g_minmax["max"]))
+
+    def within_norm(g, v):
+        mn, mx = float(g_min.get(g, 0)), float(g_max.get(g, 0))
+        if mx <= mn:
+            return 1.0
+        return (float(v) - mn) / (mx - mn)
+
+    df["t"] = df.apply(lambda r: within_norm(r["그룹"], r["예산"]), axis=1)  # 0~1
+
+    # Treemap 노드 구성: 그룹(루트) -> 지면(leaf)
+    labels, parents, values, colors, ids = [], [], [], [], []
+
+    # 그룹 노드
+    grp_sum = df.groupby("그룹")["예산"].sum().to_dict()
+    for g, v in grp_sum.items():
+        labels.append(g)
+        parents.append("")
+        values.append(float(v))
+        ids.append(f"grp::{g}")
+
+        h = group_hue.get(g, 0.6)
+        colors.append(_hls_to_hex(h, l=0.50, s=0.55))  # 그룹 헤더는 중간톤
+
+    # leaf 노드 (지면)
+    for _, r in df.iterrows():
+        g = r["그룹"]
+        name = r["지면"]
+        v = float(r["예산"])
+        t = float(r["t"])  # 0~1
+
+        labels.append(name)
+        parents.append(g)
+        values.append(v)
+        ids.append(f"leaf::{g}::{name}")
+
+        h = group_hue.get(g, 0.6)
+
+        # ✅ 예시처럼 “큰 타일 = 더 진하게”
+        # 밝은(작은) 0.85 ~ 진한(큰) 0.35
+        l = 0.85 - (0.50 * t)
+        s = 0.60
+        colors.append(_hls_to_hex(h, l=l, s=s))
+
+    fig = go.Figure(go.Treemap(
+        labels=labels,
+        parents=parents,
+        values=values,
+        ids=ids,
+        branchvalues="total",
+        marker=dict(
+            colors=colors,
+            line=dict(width=2, color="rgba(255,255,255,0.85)")
+        ),
+        # 예시처럼 중앙에 흰 글씨 느낌
+        textinfo="label+value",
+        textfont=dict(color="white", size=14),
+        hovertemplate="%{label}<br>%{value:,.0f}원<extra></extra>",
+    ))
+
+    fig.update_layout(
+        height=height,
+        title=title,
+        margin=dict(t=50, b=10, l=10, r=10),
     )
-    fig.update_layout(height=height, margin=dict(t=50, b=10, l=10, r=10), title=title)
-    fig.update_traces(marker=dict(line=dict(width=2, color="rgba(255,255,255,0.85)")))
     return fig
+
 
 
 # =========================
