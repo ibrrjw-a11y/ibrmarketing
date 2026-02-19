@@ -2088,7 +2088,7 @@ with tab_agency:
 # =========================================================
 # ✅ 제안서 미리보기 (4번, 6번, 7번, 8번 장표 스타일)
 # =========================================================
-undefined
+
 # =========================
 # Tab: Brand
 # (이하 동일: 이전 버전 그대로 유지 — 길이상 생략 없이 포함해야 하지만,
@@ -2096,7 +2096,10 @@ undefined
 # =========================
 with tab_brand:
     st.markdown("## 브랜드사 모드")
-    submode_b = st.radio("버전 선
+    submode_b = st.radio("버전 선택", ["외부(브랜드사 공유용)", "내부(브랜드 운영/검증용)"], horizontal=True, key="brand_sub")
+    st.markdown(f"<div class='smallcap'>선택 시나리오: <span class='badge'>{sel_disp}</span></div>", unsafe_allow_html=True)
+    st.divider()
+
     st.markdown("### 시나리오 기본 변수(Backdata)")
     g1, g2, g3, g4 = st.columns(4)
     g1.metric("월 성장률(기본)", fmt_pct(scn_month_growth*100, 1))
