@@ -216,6 +216,130 @@ def generate_complete_proposal_pptx(
     prs.save(output)
     output.seek(0)
     return output.getvalue()
+# =========================================================
+# 🖥️ PPT 탭 UI 구현 (이 부분이 빠져있었습니다!)
+# =========================================================
+
+# 기존 탭 구조에 PPT 탭 추가 (기존 탭이 있다면 수정, 없다면 새로 생성)
+tab1, tab2, tab3, tab_ppt = st.tabs(["📊 시뮬레이터", "📈 분석", "💾 데이터", "📄 PPT 생성"])
+
+with tab_ppt:
+    st.header("📄 마케팅 제안서 PPT 생성")
+    
+    # 라이브러리 설치 확인
+    if not HAS_PPTX_FULL:
+        st.error("❌ python-pptx 라이브러리가 설치되지 않았습니다.")
+        st.info("💡 해결방법: 터미널에서 `pip install python-pptx` 실행 후 앱을 재시작하세요.")
+        st.stop()
+    
+    st.markdown("### 📤 템플릿 업로드 (선택사항)")
+    uploaded_template = st.file_uploader(
+        "PPT 템플릿 파일을 업로드하세요 (.pptx)",
+        type=["pptx"],
+        help="템플릿이 없으면 기본 PPT가 생성됩니다",
+        key="ppt_template_uploader"
+    )
+    
+    st.markdown("### ⚙️ 현재 시나리오 정보")
+    
+    # 시뮬레이션 데이터 확인 및 가져오기
+    if 'sim_data' in st.session_state and st.session_state.sim_data:
+        sim_data = st.session_state.sim_data
+        scenario_name = st.session_state.get('scenario_name', 'Generated Scenario')
+        
+        # 기본 정보 표시
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("예상 매출", f"₩{sim_data['revenue']:,.0f}")
+        with col2:
+            st.metric("광고 예산", f"₩{sim_data['ad_spend']:,.0f}")
+        with col3:
+            st.metric("ROAS", f"{sim_data['roas']:.2f}x")
+            
+    else:
+        st.warning("⚠️ 시뮬레이션 데이터가 없습니다. 먼저 시뮬레이터 탭에서 분석을 실행해주세요.")
+        # 테스트용 더미 데이터
+        sim_data = {
+            'revenue': 1000000,
+            'ad_spend': 500000,
+            'roas': 2.0,
+            'ad_contrib_rate': 0.3,
+            'ad_revenue': 300000,
+            'repeat_revenue': 700000
+        }
+        scenario_name = "Sample Scenario"
+    
+    # 필요한 데이터들 준비
+    mix_df = st.session_state.get('mix_df', pd.DataFrame())
+    rev_share = st.session_state.get('rev_share', {})
+    group_share = st.session_state.get('group_share', {'퍼포먼스': 0.6, '바이럴': 0.4})
+    
+    # 추가 파라미터들 (실제 변수명에 맞게 수정 필요)
+    aov = st.session_state.get('aov', 50000)
+    cpc = st.session_state.get('cpc', 500)
+    cvr = st.session_state.get('cvr', 0.02)
+    ad_contrib_in = st.session_state.get('ad_contrib_in', 0.3)
+    repurchase_in = st.session_state.get('repurchase_in', 0.7)
+    
+    # PPT 생성 버튼
+    st.markdown("### 🚀 PPT 생성")
+    
+    if st.button("📄 PPT 생성하기", type="primary", use_container_width=True):
+        with st.spinner("PPT를 생성하는 중입니다... 잠시만 기다려주세요."):
+            try:
+                # 차트 데이터 준비 (필요시)
+                charts_data = {}
+                # 예: charts_data = {'ads_treemap': fig_treemap} 형태로 추가
+                
+                if uploaded_template:
+                    # 템플릿 기반 PPT 생성
+                    template_bytes = uploaded_template.read()
+                    ppt_bytes = generate_complete_proposal_pptx(
+                        template_bytes=template_bytes,
+                        scenario_name=scenario_name,
+                        sim_data=sim_data,
+                        mix_df=mix_df,
+                        rev_share=rev_share,
+                        group_share=group_share,
+                        aov=aov,
+                        cpc=cpc,
+                        cvr=cvr,
+                        ad_contrib_in=ad_contrib_in,
+                        repurchase_in=repurchase_in,
+                        charts=charts_data
+                    )
+                    filename = f"IBR_Proposal_{scenario_name}_Template.pptx"
+                    st.success("✅ 템플릿 기반 PPT 생성 완료!")
+                else:
+                    # 기본 PPT 생성
+                    ppt_bytes = create_simple_proposal_pptx(
+                        scenario_name=scenario_name,
+                        sim_data=sim_data,
+                        mix_df=mix_df,
+                        rev_share=rev_share,
+                        group_share=group_share
+                    )
+                    filename = f"IBR_Proposal_{scenario_name}.pptx"
+                    st.success("✅ 기본 PPT 생성 완료!")
+                
+                # 다운로드 버튼 제공
+                st.download_button(
+                    label="📥 PPT 파일 다운로드",
+                    data=ppt_bytes,
+                    file_name=filename,
+                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    use_container_width=True
+                )
+                
+                st.balloons()  # 성공 애니메이션
+                
+            except Exception as e:
+                st.error(f"❌ PPT 생성 중 오류가 발생했습니다: {str(e)}")
+                
+                # 디버깅 정보 제공
+                with st.expander("🔍 오류 상세 정보 (개발자용)"):
+                    import traceback
+                    st.code(traceback.format_exc())
 
 def create_simple_proposal_pptx(scenario_name, sim_data, mix_df, rev_share, group_share):
     """

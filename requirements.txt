@@ -3,5 +3,5 @@ pandas
 numpy
 plotly
 openpyxl
-python-pptx
+python-pptx==0.6.21
 kaleido==0.2.1
