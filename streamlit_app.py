@@ -216,193 +216,6 @@ def generate_complete_proposal_pptx(
     prs.save(output)
     output.seek(0)
     return output.getvalue()
-# =========================================================
-# 🖥️ PPT 탭 UI 구현 (이 부분이 빠져있었습니다!)
-# =========================================================
-
-# 기존 탭 구조에 PPT 탭 추가 (기존 탭이 있다면 수정, 없다면 새로 생성)
-tab1, tab2, tab3, tab_ppt = st.tabs(["📊 시뮬레이터", "📈 분석", "💾 데이터", "📄 PPT 생성"])
-
-with tab_ppt:
-    st.header("📄 마케팅 제안서 PPT 생성")
-    
-    # 라이브러리 설치 확인
-    if not HAS_PPTX_FULL:
-        st.error("❌ python-pptx 라이브러리가 설치되지 않았습니다.")
-        st.info("💡 해결방법: 터미널에서 `pip install python-pptx` 실행 후 앱을 재시작하세요.")
-        st.stop()
-    
-    st.markdown("### 📤 템플릿 업로드 (선택사항)")
-    uploaded_template = st.file_uploader(
-        "PPT 템플릿 파일을 업로드하세요 (.pptx)",
-        type=["pptx"],
-        help="템플릿이 없으면 기본 PPT가 생성됩니다",
-        key="ppt_template_uploader"
-    )
-    
-    st.markdown("### ⚙️ 현재 시나리오 정보")
-    
-    # 시뮬레이션 데이터 확인 및 가져오기
-    if 'sim_data' in st.session_state and st.session_state.sim_data:
-        sim_data = st.session_state.sim_data
-        scenario_name = st.session_state.get('scenario_name', 'Generated Scenario')
-        
-        # 기본 정보 표시
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("예상 매출", f"₩{sim_data['revenue']:,.0f}")
-        with col2:
-            st.metric("광고 예산", f"₩{sim_data['ad_spend']:,.0f}")
-        with col3:
-            st.metric("ROAS", f"{sim_data['roas']:.2f}x")
-            
-    else:
-        st.warning("⚠️ 시뮬레이션 데이터가 없습니다. 먼저 시뮬레이터 탭에서 분석을 실행해주세요.")
-        # 테스트용 더미 데이터
-        sim_data = {
-            'revenue': 1000000,
-            'ad_spend': 500000,
-            'roas': 2.0,
-            'ad_contrib_rate': 0.3,
-            'ad_revenue': 300000,
-            'repeat_revenue': 700000
-        }
-        scenario_name = "Sample Scenario"
-    
-    # 필요한 데이터들 준비
-    mix_df = st.session_state.get('mix_df', pd.DataFrame())
-    rev_share = st.session_state.get('rev_share', {})
-    group_share = st.session_state.get('group_share', {'퍼포먼스': 0.6, '바이럴': 0.4})
-    
-    # 추가 파라미터들 (실제 변수명에 맞게 수정 필요)
-    aov = st.session_state.get('aov', 50000)
-    cpc = st.session_state.get('cpc', 500)
-    cvr = st.session_state.get('cvr', 0.02)
-    ad_contrib_in = st.session_state.get('ad_contrib_in', 0.3)
-    repurchase_in = st.session_state.get('repurchase_in', 0.7)
-    
-    # PPT 생성 버튼
-    st.markdown("### 🚀 PPT 생성")
-    
-    if st.button("📄 PPT 생성하기", type="primary", use_container_width=True):
-        with st.spinner("PPT를 생성하는 중입니다... 잠시만 기다려주세요."):
-            try:
-                # 차트 데이터 준비 (필요시)
-                charts_data = {}
-                # 예: charts_data = {'ads_treemap': fig_treemap} 형태로 추가
-                
-                if uploaded_template:
-                    # 템플릿 기반 PPT 생성
-                    template_bytes = uploaded_template.read()
-                    ppt_bytes = generate_complete_proposal_pptx(
-                        template_bytes=template_bytes,
-                        scenario_name=scenario_name,
-                        sim_data=sim_data,
-                        mix_df=mix_df,
-                        rev_share=rev_share,
-                        group_share=group_share,
-                        aov=aov,
-                        cpc=cpc,
-                        cvr=cvr,
-                        ad_contrib_in=ad_contrib_in,
-                        repurchase_in=repurchase_in,
-                        charts=charts_data
-                    )
-                    filename = f"IBR_Proposal_{scenario_name}_Template.pptx"
-                    st.success("✅ 템플릿 기반 PPT 생성 완료!")
-                else:
-                    # 기본 PPT 생성
-                    ppt_bytes = create_simple_proposal_pptx(
-                        scenario_name=scenario_name,
-                        sim_data=sim_data,
-                        mix_df=mix_df,
-                        rev_share=rev_share,
-                        group_share=group_share
-                    )
-                    filename = f"IBR_Proposal_{scenario_name}.pptx"
-                    st.success("✅ 기본 PPT 생성 완료!")
-                
-                # 다운로드 버튼 제공
-                st.download_button(
-                    label="📥 PPT 파일 다운로드",
-                    data=ppt_bytes,
-                    file_name=filename,
-                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                    use_container_width=True
-                )
-                
-                st.balloons()  # 성공 애니메이션
-                
-            except Exception as e:
-                st.error(f"❌ PPT 생성 중 오류가 발생했습니다: {str(e)}")
-                
-                # 디버깅 정보 제공
-                with st.expander("🔍 오류 상세 정보 (개발자용)"):
-                    import traceback
-                    st.code(traceback.format_exc())
-
-def create_simple_proposal_pptx(scenario_name, sim_data, mix_df, rev_share, group_share):
-    """
-    템플릿이 없을 때: 4개 핵심 슬라이드만 있는 새 PPT 생성
-    """
-    prs = Presentation()
-    
-    # === 슬라이드 1: 타이틀 ===
-    slide = prs.slides.add_slide(prs.slide_layouts[0])
-    title = slide.shapes.title
-    title.text = "IBR Commerce Marketing Proposal"
-    
-    if len(slide.placeholders) > 1:
-        subtitle = slide.placeholders[1]
-        subtitle.text = f"시나리오: {scenario_name}\n예상 매출: ₩{sim_data['revenue']:,.0f}\nROAS: {sim_data['roas']:.2f}x"
-    
-    # === 슬라이드 2-5: 핵심 4개 장표 ===
-    slides_content = [
-        ("Science-Driven Marketing: 3,456,000+ Scenarios", [
-            f"Selected Scenario: {scenario_name}",
-            f"Expected Revenue: ₩{sim_data['revenue']:,.0f}",
-            f"Predicted ROAS: {sim_data['roas']:.2f}x",
-            f"Ad Contribution: {sim_data['ad_contrib_rate']*100:.1f}%",
-            "Result: Zero Guesswork. Predictable ROI."
-        ]),
-        ("IBR Sales Simulator: Data-Driven Strategy Engine", [
-            f"INPUT - Total Budget: ₩{sim_data['ad_spend']:,.0f}",
-            "ANALYSIS - 3,456,000+ Scenarios Analyzed",
-            f"OUTPUT - Expected Revenue: ₩{sim_data['revenue']:,.0f}",
-            f"OUTPUT - ROAS: {sim_data['roas']:.2f}x",
-            f"OUTPUT - Ad Revenue: ₩{sim_data['ad_revenue']:,.0f}"
-        ]),
-        (f"마케팅 미디어 믹스 - Budget: ₩{sim_data['ad_spend']:,.0f}", [
-            f"Performance: {group_share.get('퍼포먼스',0)*100:.1f}%",
-            f"Viral: {group_share.get('바이럴',0)*100:.1f}%",
-            "세부 예산 배분은 아래 표 참조"
-        ]),
-        (f"Analysis - {scenario_name}", [
-            f"Total Media Budget: ₩{sim_data['ad_spend']:,.0f}",
-            f"Estimated Revenue: ₩{sim_data['revenue']:,.0f}",
-            f"ROAS: {sim_data['roas']*100:.0f}%",
-            "판매채널별 매출 분포는 아래 표 참조"
-        ])
-    ]
-    
-    for title_text, bullet_points in slides_content:
-        slide = prs.slides.add_slide(prs.slide_layouts[1])
-        title = slide.shapes.title
-        title.text = title_text
-        
-        content = slide.placeholders[1]
-        tf = content.text_frame
-        tf.text = bullet_points[0]
-        
-        for point in bullet_points[1:]:
-            p = tf.add_paragraph()
-            p.text = point
-            p.level = 1 if not point.startswith("Result:") else 0
-    
-    output = BytesIO()
-    prs.save(output)
-    output.seek(0)
-    return output.getvalue()
 # -------------------------
 # Optional dependency: Plotly
 # -------------------------
@@ -1809,9 +1622,10 @@ def _estimate_now_and_roi(
 # =========================
 # Tabs
 # =========================
-tab_guide, tab_agency, tab_brand, tab_rec, tab_custom, tab_plan = st.tabs(
-    ["안내", "대행", "브랜드사", "추천엔진", "커스텀 시나리오", "매출 계획"]
+tab_guide, tab_agency, tab_brand, tab_rec, tab_custom, tab_plan, tab_ppt = st.tabs(
+    ["안내", "대행", "브랜드사", "추천엔진", "커스텀 시나리오", "매출 계획", "📄 PPT/결과"]
 )
+
 
 # =========================
 # Tab: Guide
@@ -2049,6 +1863,43 @@ def agency_internal_pl(perf_out: pd.DataFrame, viral_out: pd.DataFrame, labor_co
         "op_profit": op_profit,
         "billed_total": billed,
     }
+def enhanced_agency_pl(perf_out, viral_out, headcount, cost_per_person, 
+                      perf_fee_rate=15.0, perf_payback_rate=5.0, viral_margin_rate=20.0):
+    """개선된 대행사 손익 계산"""
+    
+    # 퍼포먼스 수익/비용
+    perf_budget = float(perf_out["예산(계획)"].sum()) if not perf_out.empty else 0.0
+    perf_fee_revenue = perf_budget * (perf_fee_rate / 100.0)
+    perf_payback_cost = perf_budget * (perf_payback_rate / 100.0)
+    perf_net_margin = perf_fee_revenue - perf_payback_cost
+    
+    # 바이럴 수익/비용
+    viral_budget = float(viral_out["예산(계획)"].sum()) if not viral_out.empty else 0.0
+    viral_execution_cost = viral_budget * (1 - viral_margin_rate / 100.0)
+    viral_net_margin = viral_budget - viral_execution_cost
+    
+    # 총 손익
+    gross_margin = perf_net_margin + viral_net_margin
+    labor_cost = float(headcount) * float(cost_per_person)
+    operating_profit = gross_margin - labor_cost
+    
+    # 청구 총액
+    total_billing = perf_budget + perf_fee_revenue + viral_budget
+    
+    return {
+        "total_billing": total_billing,
+        "perf_budget": perf_budget,
+        "perf_fee_revenue": perf_fee_revenue,
+        "perf_payback_cost": perf_payback_cost,
+        "perf_net_margin": perf_net_margin,
+        "viral_budget": viral_budget,
+        "viral_execution_cost": viral_execution_cost,
+        "viral_net_margin": viral_net_margin,
+        "gross_margin": gross_margin,
+        "labor_cost": labor_cost,
+        "operating_profit": operating_profit,
+        "margin_rate": (operating_profit / total_billing * 100) if total_billing > 0 else 0
+    }
 
 # =========================
 # Tab: Agency
@@ -2180,6 +2031,19 @@ with tab_agency:
     fig_ads_tm = treemap_ads(perf_out, viral_out, title="광고 믹스(트리맵: 퍼포먼스/바이럴 색 구분)")
     if fig_ads_tm:
         st.plotly_chart(fig_ads_tm, use_container_width=True, key=f"ads_tm_ag_{scenario_key}")
+    # ✅ PPT 생성을 위한 데이터 저장
+    st.session_state.update({
+        "sim_data": sim,
+        "scenario_name": sel_disp,
+        "mix_df": mix_df,
+        "rev_share": rev_share,
+        "group_share": group_share,
+        "aov": aov,
+        "cpc": cpc,
+        "cvr": cvr,
+        "ad_contrib_in": ad_contrib_in,
+        "repurchase_in": repurchase_in
+    })
 
     # ✅ 핵심 수정: 대행 내부 손익(인건비 포함)
     if submode.startswith("내부"):
@@ -2194,7 +2058,45 @@ with tab_agency:
 
         labor_cost = float(headcount) * float(cost_per)
 
-        pl = agency_internal_pl(perf_out, viral_out, labor_cost=labor_cost)
+       
+        # 수수료/마진율 설정
+        fee_col1, fee_col2, fee_col3 = st.columns(3)
+        with fee_col1:
+            perf_fee_rate = st.number_input("퍼포먼스 수수료율(%)", value=15.0, step=1.0, key="ag_fee_rate")
+        with fee_col2:
+            perf_payback_rate = st.number_input("페이백률(%)", value=5.0, step=1.0, key="ag_payback_rate")
+        with fee_col3:
+            viral_margin_rate = st.number_input("바이럴 마진율(%)", value=20.0, step=1.0, key="ag_viral_margin")
+        
+        pl = enhanced_agency_pl(
+            perf_out, viral_out, headcount, cost_per,
+            perf_fee_rate, perf_payback_rate, viral_margin_rate
+        )
+        
+        # Waterfall 차트 추가
+        fig_waterfall = go.Figure(go.Waterfall(
+            name="Agency P&L",
+            orientation="v",
+            measure=["relative", "relative", "relative", "total", "relative", "total"],
+            x=["매체비", "수수료", "페이백", "매출이익", "인건비", "영업이익"],
+            y=[
+                pl["perf_budget"] + pl["viral_budget"],
+                pl["perf_fee_revenue"],
+                -pl["perf_payback_cost"],
+                0,
+                -pl["labor_cost"],
+                0
+            ],
+            texttemplate="%{y:,.0f}원",
+            textposition="outside",
+            connector={"line": {"color": "rgba(63, 63, 63, 0.3)"}}
+        ))
+        fig_waterfall.update_layout(
+            title="대행사 손익 구조 (Waterfall Chart)",
+            height=400,
+            showlegend=False
+        )
+        st.plotly_chart(fig_waterfall, use_container_width=True, key=f"waterfall_{scenario_key}")
 
         k1, k2, k3, k4 = st.columns(4)
         k1.metric("총 청구액(추정)", fmt_won(pl["billed_total"]))
@@ -2482,8 +2384,14 @@ with tab_brand:
 # Tab: Recommendation (Classic Top3 + Compare Panel)
 # =========================
 with tab_rec:
-    st.markdown("## 추천 엔진")
-    st.markdown("<div class='smallcap'>예전 방식 Top3 추천 + ROI/고점(성장·재구매·광고의존) 비교</div>", unsafe_allow_html=True)
+    st.markdown("## 🎯 시나리오 탐색기 / AI 추천")
+    st.markdown("""
+    <div style='background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); 
+                padding: 15px; border-radius: 8px; color: white; margin-bottom: 20px;'>
+        <b>💡 스마트 추천:</b> 입력 조건을 바탕으로 Backdata에서 최적의 시나리오 3개를 자동 추천합니다.<br>
+        <b>📊 성과 예측:</b> 각 시나리오의 현재 효율(ROAS)과 성장 잠재력(고점지수)을 동시에 비교할 수 있습니다.
+    </div>
+    """, unsafe_allow_html=True)
     st.divider()
 
     # ---- backdata의 성장/재구매/광고 관련 컬럼 자동 탐지 ----
@@ -2622,7 +2530,12 @@ with tab_rec:
         r = item["row"]
         rs = item["rev_share"]
         ms = item["media_share"]
-
+            # 시나리오 선택 버튼 (기존 버튼 바로 아래)
+            if st.button("🎯 이 시나리오로 이동", key=f"goto_{item['scenario_key']}", use_container_width=True):
+                st.session_state["sel_scn"] = item["scenario_disp"]
+                st.success(f"✅ '{item['scenario_disp']}' 선택완료! '대행' 또는 '브랜드사' 탭에서 시뮬레이션하세요.")
+                # 자동 스크롤을 위한 정보 메시지
+                st.info("💡 상단 탭을 클릭하여 시뮬레이션을 진행하세요.")
         # KPI (시나리오 KPI 있으면 사용, 없으면 현재 선택 시나리오 blended를 fallback)
         scn_cpc, scn_cvr = blended_cpc_cvr(r, perf_cols)
         if (not use_scn_kpi) or (scn_cpc is None) or (scn_cvr is None):
@@ -3003,3 +2916,111 @@ with tab_plan:
             fig.update_traces(texttemplate="%{text:,.0f}", textposition="outside")
             fig.update_layout(height=380, margin=dict(t=10), yaxis_title=None, xaxis_title=None, title="브랜드별 연간 매출 합계")
             st.plotly_chart(fig, use_container_width=True, key="plan_bar_total_manual")
+# =========================
+# Tab: PPT/결과 출력
+# =========================
+with tab_ppt:
+    st.markdown("## 📄 마케팅 제안서 PPT 생성")
+    
+    # 현재 상태 확인
+    if 'sim_data' in st.session_state and st.session_state.sim_data:
+        sim_data = st.session_state.sim_data
+        scenario_name = st.session_state.get('scenario_name', sel_disp)
+        
+        st.success(f"✅ 시뮬레이션 완료: {scenario_name}")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("예상 매출", fmt_won_compact(sim_data['revenue']))
+        with col2:
+            st.metric("광고 예산", fmt_won_compact(sim_data['ad_spend']))
+        with col3:
+            st.metric("ROAS", f"{sim_data['roas']:.2f}x")
+    else:
+        st.warning("⚠️ 먼저 '대행' 또는 '브랜드사' 탭에서 시뮬레이션을 실행하세요.")
+        # 테스트용 더미 데이터
+        sim_data = {
+            'revenue': 1000000, 'ad_spend': 500000, 'roas': 2.0,
+            'ad_contrib_rate': 0.3, 'ad_revenue': 300000, 'repeat_revenue': 700000
+        }
+        scenario_name = sel_disp
+
+    st.divider()
+    
+    # PPT 생성 UI
+    if not HAS_PPTX_FULL:
+        st.error("❌ python-pptx 라이브러리가 필요합니다.")
+        st.code("pip install python-pptx")
+        st.stop()
+    
+    uploaded_template = st.file_uploader(
+        "PPT 템플릿 업로드 (.pptx, 선택사항)",
+        type=["pptx"],
+        help="템플릿이 없으면 기본 PPT를 생성합니다"
+    )
+    
+    if st.button("🚀 PPT 생성하기", type="primary", use_container_width=True):
+        with st.spinner("PPT 생성 중..."):
+            try:
+                mix_df = st.session_state.get('mix_df', pd.DataFrame())
+                rev_share = st.session_state.get('rev_share', {})
+                group_share = st.session_state.get('group_share', {'퍼포먼스': 0.6, '바이럴': 0.4})
+                
+                # 차트 데이터 준비
+                charts_data = {}
+                if not mix_df.empty:
+                    perf_df = mix_df[mix_df['구분'] == '퍼포먼스'] if '구분' in mix_df.columns else pd.DataFrame()
+                    viral_df = mix_df[mix_df['구분'] == '바이럴'] if '구분' in mix_df.columns else pd.DataFrame()
+                    
+                    fig_ads = treemap_ads(perf_df, viral_df, title="광고 믹스")
+                    if fig_ads:
+                        charts_data['ads_treemap'] = fig_ads
+                
+                if rev_share:
+                    fig_rev = treemap_revenue(rev_share, title="매출 채널 구성")
+                    if fig_rev:
+                        charts_data['rev_treemap'] = fig_rev
+                
+                # PPT 생성
+                if uploaded_template:
+                    template_bytes = uploaded_template.read()
+                    ppt_bytes = generate_complete_proposal_pptx(
+                        template_bytes=template_bytes,
+                        scenario_name=scenario_name,
+                        sim_data=sim_data,
+                        mix_df=mix_df,
+                        rev_share=rev_share,
+                        group_share=group_share,
+                        aov=st.session_state.get('aov', 50000),
+                        cpc=st.session_state.get('cpc', 500),
+                        cvr=st.session_state.get('cvr', 0.02),
+                        ad_contrib_in=st.session_state.get('ad_contrib_in', 0.3),
+                        repurchase_in=st.session_state.get('repurchase_in', 0.7),
+                        charts=charts_data
+                    )
+                    filename = f"IBR_Proposal_{scenario_name}_Template.pptx"
+                else:
+                    ppt_bytes = create_simple_proposal_pptx(
+                        scenario_name=scenario_name,
+                        sim_data=sim_data,
+                        mix_df=mix_df,
+                        rev_share=rev_share,
+                        group_share=group_share
+                    )
+                    filename = f"IBR_Proposal_{scenario_name}.pptx"
+                
+                st.success("✅ PPT 생성 완료!")
+                st.download_button(
+                    label="📥 PPT 파일 다운로드",
+                    data=ppt_bytes,
+                    file_name=filename,
+                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    use_container_width=True
+                )
+                st.balloons()
+                
+            except Exception as e:
+                st.error(f"❌ PPT 생성 오류: {str(e)}")
+                with st.expander("🔍 오류 상세"):
+                    import traceback
+                    st.code(traceback.format_exc())
