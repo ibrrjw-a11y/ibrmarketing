@@ -9,20 +9,22 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import re
-from io import StringIO
+from io import StringIO, BytesIO
 from typing import Optional, Dict, List, Tuple
-# =========================================================
-# ✅ PPT 템플릿 기반 완성본 생성 함수
-# =========================================================
-from io import BytesIO
-try:
-    from pptx import Presentation
-    from pptx.util import Inches, Pt
-    from pptx.enum.text import PP_ALIGN
-    from pptx.dml.color import RGBColor
-    HAS_PPTX_FULL = True
-except ImportError:
-    HAS_PPTX_FULL = False
+
+# Plotly
+import plotly.express as px
+import plotly.graph_objects as go
+
+# python-pptx
+from pptx import Presentation
+from pptx.util import Inches, Pt
+from pptx.enum.text import PP_ALIGN
+from pptx.dml.color import RGBColor
+
+HAS_PLOTLY = True
+HAS_PPTX_FULL = True
+
 
 def replace_text_in_slide(slide, replacements):
     """슬라이드 내 모든 텍스트에서 플레이스홀더 치환"""
@@ -49,9 +51,108 @@ def update_table_in_slide(slide, data_rows, start_row=1):
     
     if table_shape and data_rows:
         table = table_shape.table
-        
+def compare_chart(df, x_col, y1_col, y2_col, y3_col, title=""):
+    """브랜드 내부 탭용 매출/광고비/ROAS 비교 차트"""
+    fig = go.Figure()
+    
+    # 막대 차트 (매출, 광고비)
+    fig.add_trace(go.Bar(
+        name=y1_col,
+        x=df[x_col],
+        y=df[y1_col],
+        marker_color='#2F6FED',
+        yaxis='y'
+    ))
+    
+    fig.add_trace(go.Bar(
+        name=y2_col,
+        x=df[x_col],
+        y=df[y2_col],
+        marker_color='#34A853',
+        yaxis='y'
+    ))
+    
+    # 라인 차트 (ROAS) - 오른쪽 축
+    fig.add_trace(go.Scatter(
+        name=y3_col,
+        x=df[x_col],
+        y=df[y3_col],
+        mode='lines+markers',
+        line=dict(color='#F39C12', width=3),
+        yaxis='y2'
+    ))
+    
+    fig.update_layout(
+        title=title,
+        xaxis_title=x_col,
+        yaxis=dict(title="금액 (원)", side='left'),
+        yaxis2=dict(title="ROAS", side='right', overlaying='y'),
+        height=400,
+        hovermode='x unified'
+    )
+    
+    return fig
+
+def create_simple_proposal_pptx(scenario_name, sim_data, mix_df, rev_share, group_share):
+    """템플릿 없이 기본 PPT 생성"""
+    prs = Presentation()
+    
+    # 슬라이드 1: 타이틀
+    slide = prs.slides.add_slide(prs.slide_layouts[0])
+    title = slide.shapes.title
+    title.text = "IBR Marketing Proposal"
+    
+    if len(slide.placeholders) > 1:
+        subtitle = slide.placeholders[1]
+        subtitle.text = f"""시나리오: {scenario_name}
+예상 매출: ₩{sim_data['revenue']:,.0f}
+ROAS: {sim_data['roas']:.2f}x"""
+    
+    # 슬라이드 2: 핵심 결과
+    slide2 = prs.slides.add_slide(prs.slide_layouts[1])
+    title2 = slide2.shapes.title
+    title2.text = "시뮬레이션 핵심 결과"
+    
+    content = slide2.placeholders[1]
+    tf = content.text_frame
+    tf.text = f"총 매출: ₩{sim_data['revenue']:,.0f}"
+    
+    bullet_points = [
+        f"광고 예산: ₩{sim_data['ad_spend']:,.0f}",
+        f"ROAS: {sim_data['roas']:.2f}x",
+        f"광고기여율: {sim_data.get('ad_contrib_rate', 0)*100:.1f}%",
+        f"광고기여 매출: ₩{sim_data.get('ad_revenue', 0):,.0f}",
+        f"재구매 매출: ₩{sim_data.get('repeat_revenue', 0):,.0f}"
+    ]
+    
+    for point in bullet_points:
+        p = tf.add_paragraph()
+        p.text = point
+        p.level = 1
+    
+    # 슬라이드 3: 채널 구성
+    slide3 = prs.slides.add_slide(prs.slide_layouts[1])
+    title3 = slide3.shapes.title
+    title3.text = "판매채널별 매출 구성"
+    
+    content3 = slide3.placeholders[1]
+    tf3 = content3.text_frame
+    tf3.text = "주요 판매채널 비중"
+    
+    for ch, share in sorted(rev_share.items(), key=lambda x: x[1], reverse=True)[:5]:
+        if share > 0:
+            p = tf3.add_paragraph()
+            ch_rev = sim_data['revenue'] * share
+            p.text = f"{ch}: {share*100:.1f}% (₩{ch_rev:,.0f})"
+            p.level = 1
+    
+    # PPT 저장
+    output = BytesIO()
+    prs.save(output)
+    output.seek(0)
+    return output.getvalue()        
         # 기존 데이터 행 제거 (헤더 제외)
-        for row_idx in range(len(table.rows) - 1, start_row - 1, -1):
+    for row_idx in range(len(table.rows) - 1, start_row - 1, -1):
             if row_idx >= len(table.rows):
                 continue
             # 행 내용만 비우기 (행 삭제는 복잡하므로)
@@ -59,12 +160,12 @@ def update_table_in_slide(slide, data_rows, start_row=1):
                 table.cell(row_idx, col_idx).text = ""
         
         # 새 데이터 입력
-        for idx, row_data in enumerate(data_rows):
+    for idx, row_data in enumerate(data_rows):
             row_idx = start_row + idx
             if row_idx >= len(table.rows):
                 break  # 테이블 크기 초과 시 중단
             
-            for col_idx, cell_value in enumerate(row_data):
+    for col_idx, cell_value in enumerate(row_data):
                 if col_idx >= len(table.columns):
                     break
                 
@@ -72,7 +173,7 @@ def update_table_in_slide(slide, data_rows, start_row=1):
                 cell.text = str(cell_value)
                 
                 # 기본 서식 적용
-                for paragraph in cell.text_frame.paragraphs:
+    for paragraph in cell.text_frame.paragraphs:
                     paragraph.font.size = Pt(10)
 
 def add_chart_image_to_slide(slide, plotly_fig, left_inches, top_inches, width_inches, height_inches):
@@ -2531,7 +2632,7 @@ with tab_rec:
         rs = item["rev_share"]
         ms = item["media_share"]
             # 시나리오 선택 버튼 (기존 버튼 바로 아래)
-            if st.button("🎯 이 시나리오로 이동", key=f"goto_{item['scenario_key']}", use_container_width=True):
+        if st.button("🎯 이 시나리오로 이동", key=f"goto_{item['scenario_key']}", use_container_width=True):
                 st.session_state["sel_scn"] = item["scenario_disp"]
                 st.success(f"✅ '{item['scenario_disp']}' 선택완료! '대행' 또는 '브랜드사' 탭에서 시뮬레이션하세요.")
                 # 자동 스크롤을 위한 정보 메시지
