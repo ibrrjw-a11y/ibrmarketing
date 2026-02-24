@@ -27,77 +27,494 @@ APP_PASSWORD = "ibrsecret"
 # =========================
 # Page / Theme
 # =========================
-st.set_page_config(page_title="마케팅/유통 시뮬레이터", layout="wide")
+st.set_page_config(
+    page_title="마케팅/유통 시뮬레이터",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-ACCENT = "#2F6FED"
+ACCENT = "#4F8EF7"
+ACCENT2 = "#7C5CFC"
+SUCCESS = "#22C55E"
+WARNING = "#F59E0B"
+DANGER  = "#EF4444"
 
 st.markdown("""
 <style>
-html, body, [class*="css"]{
+/* ─── Google Font ─────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* ─── Global Reset ────────────────────────────────── */
+html, body, [class*="css"] {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
   font-size: 14px;
+  letter-spacing: -0.01em;
 }
-.card{
-  border-radius: 14px;
-  padding: 14px 14px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(255,255,255,0.04);
+
+/* ─── 앱 배경 ─────────────────────────────────────── */
+.stApp {
+  background: #0F1117 !important;
 }
-.card h3{ margin:0; }
-@media (prefers-color-scheme: light){
-  .card{
-    border: 1px solid rgba(0,0,0,0.08);
-    background: #ffffff;
-  }
+
+/* ─── 메인 컨테이너 패딩 ──────────────────────────── */
+.main .block-container {
+  padding: 1.5rem 2rem 3rem 2rem !important;
+  max-width: 1400px !important;
 }
-div[data-testid="stDataFrame"] div, 
-div[data-testid="stDataFrame"] span,
-div[data-testid="stDataEditor"] div, 
-div[data-testid="stDataEditor"] span,
-div[data-baseweb="select"] * ,
-input, textarea{
+
+/* ─── 사이드바 ────────────────────────────────────── */
+[data-testid="stSidebar"] {
+  background: #161B27 !important;
+  border-right: 1px solid rgba(79,142,247,0.12) !important;
+}
+[data-testid="stSidebar"] .block-container {
+  padding: 1.2rem 1rem !important;
+}
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3 {
+  color: #E2E8F0 !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  margin-bottom: 0.6rem !important;
+}
+[data-testid="stSidebar"] label {
+  color: #94A3B8 !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+}
+[data-testid="stSidebar"] .stMarkdown p {
+  color: #CBD5E1 !important;
+  font-size: 13px !important;
+}
+/* 사이드바 구분선 */
+[data-testid="stSidebar"] hr {
+  border-color: rgba(79,142,247,0.15) !important;
+  margin: 0.8rem 0 !important;
+}
+
+/* ─── 탭 ───────────────────────────────────────────── */
+[data-testid="stTabs"] [role="tablist"] {
+  background: #1A2035 !important;
+  border-radius: 12px !important;
+  padding: 4px !important;
+  gap: 2px !important;
+  border: 1px solid rgba(79,142,247,0.12) !important;
+}
+[data-testid="stTabs"] [role="tab"] {
+  border-radius: 9px !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  color: #64748B !important;
+  padding: 7px 16px !important;
+  transition: all 0.2s ease !important;
+  border: none !important;
+}
+[data-testid="stTabs"] [role="tab"]:hover {
+  color: #CBD5E1 !important;
+  background: rgba(79,142,247,0.08) !important;
+}
+[data-testid="stTabs"] [aria-selected="true"] {
+  background: linear-gradient(135deg, #4F8EF7, #7C5CFC) !important;
+  color: #FFFFFF !important;
+  font-weight: 600 !important;
+  box-shadow: 0 2px 12px rgba(79,142,247,0.35) !important;
+}
+
+/* ─── st.metric 카드 ──────────────────────────────── */
+[data-testid="stMetric"] {
+  background: #1A2035 !important;
+  border: 1px solid rgba(79,142,247,0.14) !important;
+  border-radius: 12px !important;
+  padding: 14px 18px !important;
+  transition: border-color 0.2s ease !important;
+}
+[data-testid="stMetric"]:hover {
+  border-color: rgba(79,142,247,0.35) !important;
+}
+[data-testid="stMetricLabel"] {
+  color: #64748B !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.06em !important;
+}
+[data-testid="stMetricValue"] {
+  color: #F1F5F9 !important;
+  font-size: 1.4rem !important;
+  font-weight: 700 !important;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  line-height: 1.2 !important;
+}
+[data-testid="stMetricDelta"] {
+  font-size: 12px !important;
+}
+
+/* ─── 버튼 ────────────────────────────────────────── */
+.stButton > button {
+  background: linear-gradient(135deg, #4F8EF7, #7C5CFC) !important;
+  color: #FFFFFF !important;
+  border: none !important;
+  border-radius: 8px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  padding: 8px 18px !important;
+  transition: all 0.2s ease !important;
+  box-shadow: 0 2px 10px rgba(79,142,247,0.25) !important;
+  letter-spacing: 0.01em !important;
+}
+.stButton > button:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 16px rgba(79,142,247,0.4) !important;
+}
+.stButton > button:active {
+  transform: translateY(0) !important;
+}
+
+/* ─── 입력 필드 ──────────────────────────────────── */
+[data-testid="stNumberInput"] input,
+[data-testid="stTextInput"] input,
+.stTextInput input,
+.stNumberInput input {
+  background: #1A2035 !important;
+  border: 1px solid rgba(79,142,247,0.18) !important;
+  border-radius: 8px !important;
+  color: #E2E8F0 !important;
+  font-size: 13px !important;
+  transition: border-color 0.2s ease !important;
+}
+[data-testid="stNumberInput"] input:focus,
+[data-testid="stTextInput"] input:focus {
+  border-color: #4F8EF7 !important;
+  box-shadow: 0 0 0 3px rgba(79,142,247,0.15) !important;
+}
+
+/* ─── 셀렉트박스 ──────────────────────────────────── */
+[data-baseweb="select"] > div {
+  background: #1A2035 !important;
+  border: 1px solid rgba(79,142,247,0.18) !important;
+  border-radius: 8px !important;
+  color: #E2E8F0 !important;
+  font-size: 13px !important;
+}
+[data-baseweb="select"] > div:hover {
+  border-color: #4F8EF7 !important;
+}
+[data-baseweb="popover"] {
+  background: #1A2035 !important;
+  border: 1px solid rgba(79,142,247,0.2) !important;
+  border-radius: 10px !important;
+}
+[data-baseweb="menu"] {
+  background: #1A2035 !important;
+}
+[data-baseweb="option"]:hover {
+  background: rgba(79,142,247,0.12) !important;
+}
+
+/* ─── 라디오 버튼 ──────────────────────────────────── */
+[data-testid="stRadio"] label {
+  color: #CBD5E1 !important;
+  font-size: 13px !important;
+}
+[data-testid="stRadio"] [data-testid="stMarkdownContainer"] p {
+  font-size: 13px !important;
+}
+
+/* ─── 토글 ─────────────────────────────────────────── */
+[data-testid="stToggle"] label {
+  color: #CBD5E1 !important;
+  font-size: 13px !important;
+}
+
+/* ─── 데이터프레임/에디터 ──────────────────────────── */
+[data-testid="stDataFrame"],
+[data-testid="stDataEditor"] {
+  border: 1px solid rgba(79,142,247,0.12) !important;
+  border-radius: 10px !important;
+  overflow: hidden !important;
+}
+[data-testid="stDataFrame"] div,
+[data-testid="stDataFrame"] span,
+[data-testid="stDataEditor"] div,
+[data-testid="stDataEditor"] span {
   opacity: 1 !important;
 }
-.smallcap{
-  opacity: .75;
-  font-size: 12px;
+.dvn-scroller {
+  background: #161B27 !important;
 }
-.badge{
-  display:inline-block;
-  padding: 6px 10px;
-  border-radius: 999px;
+
+/* ─── 익스팬더 ──────────────────────────────────────── */
+[data-testid="stExpander"] {
+  border: 1px solid rgba(79,142,247,0.12) !important;
+  border-radius: 10px !important;
+  background: #161B27 !important;
+  overflow: hidden !important;
+}
+[data-testid="stExpander"] summary {
+  color: #CBD5E1 !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  padding: 10px 14px !important;
+}
+[data-testid="stExpander"] summary:hover {
+  background: rgba(79,142,247,0.06) !important;
+}
+
+/* ─── 구분선 ────────────────────────────────────────── */
+hr {
+  border: none !important;
+  border-top: 1px solid rgba(79,142,247,0.12) !important;
+  margin: 1.4rem 0 !important;
+}
+
+/* ─── 알림/인포 박스 ──────────────────────────────── */
+[data-testid="stInfo"] {
+  background: rgba(79,142,247,0.08) !important;
+  border: 1px solid rgba(79,142,247,0.2) !important;
+  border-radius: 10px !important;
+  color: #93C5FD !important;
+}
+[data-testid="stWarning"] {
+  background: rgba(245,158,11,0.08) !important;
+  border: 1px solid rgba(245,158,11,0.25) !important;
+  border-radius: 10px !important;
+  color: #FCD34D !important;
+}
+[data-testid="stError"] {
+  background: rgba(239,68,68,0.08) !important;
+  border: 1px solid rgba(239,68,68,0.25) !important;
+  border-radius: 10px !important;
+  color: #FCA5A5 !important;
+}
+[data-testid="stSuccess"] {
+  background: rgba(34,197,94,0.08) !important;
+  border: 1px solid rgba(34,197,94,0.25) !important;
+  border-radius: 10px !important;
+  color: #86EFAC !important;
+}
+
+/* ─── 캡션/텍스트 ────────────────────────────────── */
+[data-testid="stCaptionContainer"],
+.stCaptionContainer p,
+caption {
+  color: #475569 !important;
+  font-size: 11.5px !important;
+}
+h1 { color: #F1F5F9 !important; font-size: 1.6rem !important; font-weight: 700 !important; }
+h2 { color: #E2E8F0 !important; font-size: 1.25rem !important; font-weight: 600 !important; }
+h3 { color: #CBD5E1 !important; font-size: 1.05rem !important; font-weight: 600 !important; }
+p  { color: #94A3B8 !important; }
+
+/* ─── 파일 업로더 ──────────────────────────────────── */
+[data-testid="stFileUploader"] {
+  background: #1A2035 !important;
+  border: 1.5px dashed rgba(79,142,247,0.28) !important;
+  border-radius: 10px !important;
+  padding: 8px !important;
+  transition: border-color 0.2s ease !important;
+}
+[data-testid="stFileUploader"]:hover {
+  border-color: #4F8EF7 !important;
+}
+[data-testid="stFileUploader"] label {
+  color: #94A3B8 !important;
+  font-size: 12px !important;
+}
+[data-testid="stFileUploaderDropzoneInstructions"] {
+  color: #64748B !important;
+}
+
+/* ─── Plotly 차트 배경 ──────────────────────────────── */
+.js-plotly-plot .plotly .bg {
+  fill: #161B27 !important;
+}
+
+/* ─── 커스텀 컴포넌트 ──────────────────────────────── */
+
+/* 페이지 헤더 */
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 0 16px 0;
+  border-bottom: 1px solid rgba(79,142,247,0.12);
+  margin-bottom: 20px;
+}
+.page-header .ph-icon {
+  width: 40px; height: 40px;
+  background: linear-gradient(135deg, #4F8EF7, #7C5CFC);
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+}
+.page-header .ph-title {
+  font-size: 1.3rem;
   font-weight: 700;
+  color: #F1F5F9;
+  margin: 0;
+}
+.page-header .ph-sub {
   font-size: 12px;
-  background: rgba(47,111,237,0.14);
-  color: rgb(47,111,237);
+  color: #475569;
+  margin: 2px 0 0 0;
 }
-hr.soft{
-  border: 0;
-  border-top: 1px solid rgba(255,255,255,0.10);
+
+/* 섹션 헤더 */
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 24px 0 12px 0;
+}
+.section-header .sh-bar {
+  width: 4px; height: 20px;
+  background: linear-gradient(180deg, #4F8EF7, #7C5CFC);
+  border-radius: 2px;
+}
+.section-header .sh-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #E2E8F0;
+  margin: 0;
+}
+
+/* 일반 카드 */
+.card {
+  background: #1A2035;
+  border: 1px solid rgba(79,142,247,0.14);
+  border-radius: 14px;
+  padding: 20px 22px;
+  margin-bottom: 12px;
+  transition: border-color 0.2s ease;
+}
+.card:hover {
+  border-color: rgba(79,142,247,0.3);
+}
+.card h3 {
+  color: #E2E8F0 !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  margin: 0 0 12px 0 !important;
+}
+
+/* 강조 카드 (Top3 추천용) */
+.card-highlight {
+  background: linear-gradient(135deg, rgba(79,142,247,0.08), rgba(124,92,252,0.06));
+  border: 1px solid rgba(79,142,247,0.28);
+  border-radius: 14px;
+  padding: 20px 22px;
+  margin-bottom: 12px;
+  position: relative;
+  overflow: hidden;
+}
+.card-highlight::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #4F8EF7, #7C5CFC);
+}
+
+/* 뱃지 */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 11.5px;
+  background: rgba(79,142,247,0.12);
+  color: #7EB4FF;
+  border: 1px solid rgba(79,142,247,0.2);
+  letter-spacing: 0.02em;
+}
+.badge-success {
+  background: rgba(34,197,94,0.1);
+  color: #4ADE80;
+  border-color: rgba(34,197,94,0.2);
+}
+.badge-warning {
+  background: rgba(245,158,11,0.1);
+  color: #FCD34D;
+  border-color: rgba(245,158,11,0.2);
+}
+.badge-purple {
+  background: rgba(124,92,252,0.12);
+  color: #A78BFA;
+  border-color: rgba(124,92,252,0.2);
+}
+
+/* 소형 텍스트 */
+.smallcap {
+  color: #475569;
+  font-size: 11.5px;
+}
+
+/* 구분선(소프트) */
+hr.soft {
+  border: none !important;
+  border-top: 1px solid rgba(79,142,247,0.10) !important;
+  margin: 14px 0 !important;
+}
+
+/* 스탯 그리드 */
+.stat-row {
+  display: flex;
+  gap: 12px;
   margin: 12px 0;
+  flex-wrap: wrap;
 }
-@media (prefers-color-scheme: light){
-  hr.soft{ border-top: 1px solid rgba(0,0,0,0.08); }
+.stat-item {
+  flex: 1;
+  min-width: 110px;
+  background: rgba(79,142,247,0.06);
+  border: 1px solid rgba(79,142,247,0.12);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.stat-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+}
+.stat-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #E2E8F0;
 }
 
-/* ✅ st.metric 값이 ...으로 잘리는 문제 방지 */
-div[data-testid="stMetricValue"]{
-  white-space: normal !important;    /* 줄바꿈 허용 */
-  overflow: visible !important;      /* 잘리지 않게 */
-  text-overflow: clip !important;    /* ... 제거 */
-  line-height: 1.15 !important;
+/* 안내 탭 ul/li */
+.guide-list li {
+  color: #94A3B8;
+  font-size: 13.5px;
+  line-height: 1.8;
+  margin-bottom: 2px;
+}
+.guide-list li b {
+  color: #CBD5E1;
+}
+.guide-list code {
+  background: rgba(79,142,247,0.12);
+  color: #93C5FD;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12px;
 }
 
-/* 카드 안에서는 조금 더 작게 */
-.card div[data-testid="stMetricValue"]{
-  font-size: 1.35rem !important;     /* 필요시 1.25~1.45 조정 */
-}
-
-/* 모바일/좁은 화면에서는 더 줄이기 */
-@media (max-width: 1100px){
-  .card div[data-testid="stMetricValue"]{
-    font-size: 1.15rem !important;
-  }
-}
+/* 스크롤바 */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #161B27; }
+::-webkit-scrollbar-thumb { background: #2D3A55; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #4F8EF7; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -120,23 +537,54 @@ def auth_gate() -> bool:
     if st.session_state.get("auth_ok", False):
         return True
 
-    st.sidebar.markdown("## 🔒 접근 제한")
-    pw = st.sidebar.text_input("비밀번호", type="password", key="auth_pw")
+    st.sidebar.markdown("""
+<div style="text-align:center; padding: 16px 0 8px 0;">
+  <div style="width:48px;height:48px;background:linear-gradient(135deg,#4F8EF7,#7C5CFC);
+    border-radius:14px;display:inline-flex;align-items:center;justify-content:center;
+    font-size:22px;margin-bottom:10px;">🔒</div>
+  <div style="color:#E2E8F0;font-size:15px;font-weight:700;">접근 제한</div>
+  <div style="color:#475569;font-size:11.5px;margin-top:4px;">비밀번호를 입력하여 잠금 해제</div>
+</div>
+""", unsafe_allow_html=True)
+    pw = st.sidebar.text_input("비밀번호", type="password", key="auth_pw", placeholder="비밀번호 입력...")
     col1, col2 = st.sidebar.columns([1, 1])
     with col1:
-        if st.button("잠금 해제", key="auth_unlock"):
+        if st.button("잠금 해제", key="auth_unlock", use_container_width=True):
             if pw == APP_PASSWORD:
                 st.session_state["auth_ok"] = True
                 st.rerun()
             else:
                 st.sidebar.error("비밀번호가 틀립니다.")
     with col2:
-        if st.button("초기화", key="auth_reset"):
+        if st.button("초기화", key="auth_reset", use_container_width=True):
             st.session_state.pop("auth_ok", None)
             st.session_state.pop("auth_pw", None)
             st.rerun()
 
-    st.info("좌측 사이드바에서 비밀번호를 입력하세요.")
+    # 메인 화면 안내
+    st.markdown("""
+<div style="
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  min-height:60vh; text-align:center; gap:16px;
+">
+  <div style="
+    width:72px;height:72px;
+    background:linear-gradient(135deg,#4F8EF7,#7C5CFC);
+    border-radius:20px;
+    display:flex;align-items:center;justify-content:center;
+    font-size:32px;
+    box-shadow:0 8px 32px rgba(79,142,247,0.35);
+  ">📊</div>
+  <div>
+    <div style="font-size:1.5rem;font-weight:700;color:#F1F5F9;margin-bottom:8px;">
+      마케팅 / 유통 시뮬레이터
+    </div>
+    <div style="font-size:13.5px;color:#475569;line-height:1.7;">
+      좌측 사이드바에서 비밀번호를 입력하여<br>시뮬레이터에 접속하세요.
+    </div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
     return False
 
 if not auth_gate():
@@ -251,11 +699,33 @@ def drop_duplicate_dot_columns(df: pd.DataFrame) -> pd.DataFrame:
     out.columns = [re.sub(r"\.\d+$", "", str(c)).strip() for c in out.columns]
     return out
 
+PLOTLY_DARK = {
+    "paper_bgcolor": "#161B27",
+    "plot_bgcolor":  "#161B27",
+    "font":  {"color": "#94A3B8", "family": "Inter, sans-serif", "size": 12},
+    "title_font": {"color": "#E2E8F0", "size": 14, "family": "Inter, sans-serif"},
+    "legend": {"bgcolor": "rgba(22,27,39,0.8)", "bordercolor": "rgba(79,142,247,0.2)", "borderwidth": 1},
+    "colorway": ["#4F8EF7","#7C5CFC","#22C55E","#F59E0B","#EF4444","#06B6D4","#EC4899","#F97316"],
+}
+
 def donut_chart(labels, values, title="", height=320):
     dd = pd.DataFrame({"name": labels, "value": values})
-    fig = px.pie(dd, names="name", values="value", hole=0.55)
-    fig.update_traces(textinfo="percent+label")
-    fig.update_layout(height=height, margin=dict(t=40, b=10, l=10, r=10), title=title)
+    fig = px.pie(dd, names="name", values="value", hole=0.58,
+                 color_discrete_sequence=PLOTLY_DARK["colorway"])
+    fig.update_traces(
+        textinfo="percent+label",
+        textfont=dict(size=12, color="#E2E8F0"),
+        marker=dict(line=dict(color="#161B27", width=2)),
+    )
+    fig.update_layout(
+        height=height,
+        margin=dict(t=50, b=10, l=10, r=10),
+        title=dict(text=title, font=PLOTLY_DARK["title_font"], x=0.01),
+        paper_bgcolor=PLOTLY_DARK["paper_bgcolor"],
+        plot_bgcolor=PLOTLY_DARK["plot_bgcolor"],
+        font=PLOTLY_DARK["font"],
+        legend=PLOTLY_DARK["legend"],
+    )
     return fig
 
 # =========================
@@ -763,10 +1233,17 @@ def treemap_revenue(rev_share: Dict[str, float], height=380, title="매출 채�
         color="그룹",
     )
 
-    fig.update_layout(height=height, margin=dict(t=50, b=10, l=10, r=10), title=title)
+    fig.update_layout(
+        height=height,
+        margin=dict(t=50, b=10, l=10, r=10),
+        title=dict(text=title, font=PLOTLY_DARK["title_font"], x=0.01),
+        paper_bgcolor=PLOTLY_DARK["paper_bgcolor"],
+        font=PLOTLY_DARK["font"],
+    )
     fig.update_traces(
         texttemplate="%{label}<br>%{value:.1%}",
-        marker=dict(line=dict(width=2, color="rgba(255,255,255,0.85)"))
+        textfont=dict(color="#E2E8F0", size=12),
+        marker=dict(line=dict(width=2, color="#161B27"))
     )
     return fig
 
@@ -816,8 +1293,17 @@ def treemap_ads(perf_df: pd.DataFrame, viral_df: pd.DataFrame, height=430, title
         values="예산",
         color="그룹",
     )
-    fig.update_layout(height=height, margin=dict(t=50, b=10, l=10, r=10), title=title)
-    fig.update_traces(marker=dict(line=dict(width=2, color="rgba(255,255,255,0.85)")))
+    fig.update_layout(
+        height=height,
+        margin=dict(t=50, b=10, l=10, r=10),
+        title=dict(text=title, font=PLOTLY_DARK["title_font"], x=0.01),
+        paper_bgcolor=PLOTLY_DARK["paper_bgcolor"],
+        font=PLOTLY_DARK["font"],
+    )
+    fig.update_traces(
+        textfont=dict(color="#E2E8F0", size=12),
+        marker=dict(line=dict(width=2, color="#161B27"))
+    )
     return fig
 
 
@@ -856,9 +1342,12 @@ def compare_chart(df_cmp: pd.DataFrame, x_col: str, rev_col: str, ad_col: str, r
     fig.update_layout(
         height=height,
         barmode="group",
-        title=title,
+        title=dict(text=title, font=PLOTLY_DARK["title_font"], x=0.01),
         margin=dict(t=50, b=10, l=10, r=10),
-        yaxis=dict(title=None, tickformat=",.0f"),
+        paper_bgcolor=PLOTLY_DARK["paper_bgcolor"],
+        plot_bgcolor=PLOTLY_DARK["plot_bgcolor"],
+        font=PLOTLY_DARK["font"],
+        yaxis=dict(title=None, tickformat=",.0f", gridcolor="rgba(79,142,247,0.08)", color="#64748B"),
         yaxis2=dict(
             title="ROAS(%)",
             overlaying="y",
@@ -867,9 +1356,12 @@ def compare_chart(df_cmp: pd.DataFrame, x_col: str, rev_col: str, ad_col: str, r
             tickmode="array",
             tickvals=tickvals,
             ticktext=ticktext,
+            color="#64748B",
         ),
-        xaxis=dict(tickangle=0),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        xaxis=dict(tickangle=0, color="#64748B", gridcolor="rgba(79,142,247,0.05)"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+                    bgcolor="rgba(22,27,39,0.8)", bordercolor="rgba(79,142,247,0.2)", borderwidth=1),
+        colorway=PLOTLY_DARK["colorway"],
     )
     return fig
 
@@ -1160,21 +1652,58 @@ def recommend_top3_strategies(feat: Dict[str, object]) -> pd.DataFrame:
 # =========================
 # Sidebar - Upload
 # =========================
-st.sidebar.title("마케팅/유통 시뮬레이터")
+st.sidebar.markdown("""
+<div style="padding: 4px 0 14px 0;">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+    <div style="width:34px;height:34px;background:linear-gradient(135deg,#4F8EF7,#7C5CFC);
+      border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;">📊</div>
+    <div>
+      <div style="color:#E2E8F0;font-size:13.5px;font-weight:700;line-height:1.2;">마케팅/유통</div>
+      <div style="color:#475569;font-size:11px;">시뮬레이터</div>
+    </div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+st.sidebar.markdown('<p style="color:#64748B;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;margin-bottom:6px;">📂 데이터 업로드</p>', unsafe_allow_html=True)
 
 uploaded = st.sidebar.file_uploader(
-    "Backdata 업로드 (xlsx/csv)",
+    "Backdata 파일 (xlsx / csv)",
     type=["xlsx", "csv"],
     key="backdata_uploader"
 )
 
-if st.sidebar.button("업로드 초기화", key="reset_uploader"):
+if st.sidebar.button("🔄 업로드 초기화", key="reset_uploader", use_container_width=True):
     st.session_state.pop("backdata_uploader", None)
     st.cache_data.clear()
     st.rerun()
 
 if uploaded is None:
-    st.info("좌측에서 backdata 파일(xlsx/csv)을 업로드하세요.")
+    st.markdown("""
+<div style="
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:65vh;text-align:center;gap:18px;
+">
+  <div style="
+    width:68px;height:68px;
+    background:linear-gradient(135deg,rgba(79,142,247,0.15),rgba(124,92,252,0.12));
+    border:1.5px dashed rgba(79,142,247,0.35);
+    border-radius:18px;
+    display:flex;align-items:center;justify-content:center;
+    font-size:28px;
+  ">📂</div>
+  <div>
+    <div style="font-size:1.15rem;font-weight:700;color:#E2E8F0;margin-bottom:8px;">
+      Backdata를 업로드하세요
+    </div>
+    <div style="font-size:13px;color:#475569;line-height:1.8;">
+      좌측 사이드바에서 <span style="color:#7EB4FF;font-weight:500;">.xlsx</span> 또는
+      <span style="color:#7EB4FF;font-weight:500;">.csv</span> 파일을 업로드하면<br>
+      시뮬레이터가 자동으로 시나리오를 로드합니다.
+    </div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
     st.stop()
 
 try:
@@ -1205,21 +1734,22 @@ def uniq_vals(c):
     return sorted([x for x in df[c].dropna().astype(str).unique().tolist() if str(x).strip() != ""])
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 시나리오 필터")
-f_search = st.sidebar.text_input("검색(노출 시나리오명)", value="", key="f_search")
-f_stage = st.sidebar.selectbox("단계(ST)", ["(전체)"] + uniq_vals(stage_col), key="f_stage")
+st.sidebar.markdown('<p style="color:#64748B;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;margin-bottom:6px;">🔍 시나리오 필터</p>', unsafe_allow_html=True)
+f_search = st.sidebar.text_input("시나리오 검색", value="", key="f_search", placeholder="키워드 입력...")
+f_stage = st.sidebar.selectbox("단계 (ST)", ["(전체)"] + uniq_vals(stage_col), key="f_stage")
 f_cat = st.sidebar.selectbox("카테고리", ["(전체)"] + uniq_vals(cat_col), key="f_cat")
-f_pos = st.sidebar.selectbox("가격 포지션(POS)", ["(전체)"] + uniq_vals(pos_col), key="f_pos")
-f_drv = st.sidebar.selectbox("드라이버(DRV)", ["(전체)"] + uniq_vals(drv_col), key="f_drv")
+f_pos = st.sidebar.selectbox("가격 포지션 (POS)", ["(전체)"] + uniq_vals(pos_col), key="f_pos")
+f_drv = st.sidebar.selectbox("드라이버 (DRV)", ["(전체)"] + uniq_vals(drv_col), key="f_drv")
 
 apply_internal = cols.get("apply_internal")
 apply_client = cols.get("apply_client")
 apply_agency = cols.get("apply_agency")
 
-st.sidebar.markdown("### 시나리오 노출 필터(옵션)")
-show_internal = st.sidebar.toggle("내부용 적용만", value=False, key="show_internal")
-show_client = st.sidebar.toggle("브랜드사용 적용만", value=False, key="show_client")
-show_agency = st.sidebar.toggle("대행용 적용만", value=False, key="show_agency")
+st.sidebar.markdown("---")
+st.sidebar.markdown('<p style="color:#64748B;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;margin-bottom:6px;">🏷️ 노출 필터</p>', unsafe_allow_html=True)
+show_internal = st.sidebar.toggle("내부용만 보기", value=False, key="show_internal")
+show_client = st.sidebar.toggle("브랜드사용만 보기", value=False, key="show_client")
+show_agency = st.sidebar.toggle("대행용만 보기", value=False, key="show_agency")
 
 df_f = df.copy()
 if f_stage != "(전체)" and stage_col in df_f.columns:
@@ -1251,7 +1781,9 @@ if not disp_candidates:
     st.sidebar.warning("필터 결과가 없습니다. 필터를 완화하세요.")
     disp_candidates = disp_list
 
-sel_disp = st.sidebar.selectbox("시나리오 선택", options=disp_candidates, key="sel_scn")
+st.sidebar.markdown("---")
+st.sidebar.markdown('<p style="color:#64748B;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;margin-bottom:6px;">📌 시나리오 선택</p>', unsafe_allow_html=True)
+sel_disp = st.sidebar.selectbox("", options=disp_candidates, key="sel_scn", label_visibility="collapsed")
 
 scenario_key = disp_to_key.get(sel_disp)
 if scenario_key is None:
@@ -1404,76 +1936,117 @@ def _estimate_now_and_roi(
 # Tabs
 # =========================
 tab_guide, tab_agency, tab_brand, tab_rec, tab_custom, tab_plan = st.tabs(
-    ["안내", "대행", "브랜드사", "추천엔진", "커스텀 시나리오", "매출 계획"]
+    ["📖 안내", "🏢 대행", "🏷️ 브랜드사", "🤖 추천엔진", "⚙️ 커스텀 시나리오", "📅 매출 계획"]
 )
 
 # =========================
 # Tab: Guide
 # =========================
 with tab_guide:
-    st.markdown("## 사용 가이드")
-    st.markdown(
-    """
+    st.markdown("""
+<div class="page-header">
+  <div class="ph-icon">📖</div>
+  <div>
+    <div class="ph-title">사용 가이드</div>
+    <div class="ph-sub">시뮬레이터 기능 설명 및 지표 산식 안내</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+    col_g1, col_g2 = st.columns(2, gap="medium")
+
+    with col_g1:
+        st.markdown("""
 <div class="card">
-  <h3>이 시뮬레이터는 무엇을 하나요?</h3>
+  <h3>📌 이 시뮬레이터는 무엇을 하나요?</h3>
   <hr class="soft"/>
-  <ul>
-    <li><b>시나리오(backdata)</b>를 선택하면, 해당 시나리오의 <b>매출 채널 비중</b>과 <b>미디어 믹스 비중</b>을 불러옵니다.</li>
-    <li><b>대행</b> 탭: 광고비↔매출을 양방향으로 산출(<b>광고기여율/재구매율</b> 반영). 내부용은 <b>수수료/페이백/바이럴마진/인건비</b>까지 손익 계산.</li>
-    <li><b>브랜드사</b> 탭: 외부용(대략 전망 + 트리맵), 내부용(채널별 월매출 + 필요광고비 + 원가/물류/마진/인건비).</li>
-    <li><b>추천엔진</b> 탭: 시나리오 Top3 추천 + <b>현재 효율(ROAS/ROI)</b> vs <b>고점(성장/재구매/광고의존)</b> 비교로 최종 선택.</li>
+  <ul class="guide-list">
+    <li><b>시나리오(backdata)</b> 선택 → 매출 채널 비중 + 미디어 믹스 비중 자동 로드</li>
+    <li><b>🏢 대행 탭</b> — 광고비↔매출 양방향 산출, 내부: 수수료/페이백/바이럴마진/인건비 손익</li>
+    <li><b>🏷️ 브랜드사 탭</b> — 외부(전망+트리맵) / 내부(채널별 월매출+필요광고비+마진/인건비)</li>
+    <li><b>🤖 추천엔진 탭</b> — Top3 추천 + ROAS/ROI vs 고점(성장/재구매/광고의존) 비교</li>
+    <li><b>⚙️ 커스텀 시나리오</b> — 비중/예산 직접 수정 후 즉시 결과 확인</li>
+    <li><b>📅 매출 계획</b> — 브랜드별 1~12월 계획 생성 + CSV 업로드</li>
   </ul>
-
+</div>
+<div class="card" style="margin-top:12px;">
+  <h3>📐 핵심 계산 로직</h3>
   <hr class="soft"/>
-
-  <h3>지표/산식 설명</h3>
-  <ul>
-    <li><b>AOV</b> = 객단가(평균 주문금액)</li>
-    <li><b>CPC</b> = 클릭당 비용(원)</li>
-    <li><b>CVR</b> = 전환율(주문/클릭)</li>
-    <li><b>광고기여율</b> = 전체매출 중 광고가 기여한 비중(0~1)</li>
-    <li><b>재구매율</b> = 전체주문 중 재구매 주문 비중(0~1, 표시용/추정)</li>
-    <li><b>월성장률</b> = 월 기준 매출 성장률(음수 가능)</li>
-    <li><b>광고의존도</b> = 성장 시 광고비 증가 민감도(0~1, 높을수록 성장에 광고비가 더 따라붙음)</li>
-  </ul>
-
-  <hr class="soft"/>
-
-  <h3>핵심 계산 로직(요약)</h3>
-  <ul>
+  <ul class="guide-list">
     <li><b>주문수</b> = 매출 ÷ AOV</li>
     <li><b>광고비 → 매출</b><br/>
-      클릭수 = 광고비 ÷ CPC<br/>
-      광고주문수 = 클릭수 × CVR<br/>
-      광고기여매출 = 광고주문수 × AOV<br/>
-      전체매출 = 광고기여매출 ÷ 광고기여율
+      &nbsp;&nbsp;클릭수 = 광고비 ÷ CPC &nbsp;|&nbsp; 광고주문수 = 클릭수 × CVR<br/>
+      &nbsp;&nbsp;<b>전체매출 = (광고주문수 × AOV) ÷ 광고기여율</b>
     </li>
     <li><b>매출 → 필요 광고비</b><br/>
-      광고기여매출 = 전체매출 × 광고기여율<br/>
-      광고주문수 = 광고기여매출 ÷ AOV<br/>
-      클릭수 = 광고주문수 ÷ CVR<br/>
-      필요 광고비 = 클릭수 × CPC
+      &nbsp;&nbsp;광고기여매출 = 전체매출 × 광고기여율<br/>
+      &nbsp;&nbsp;<b>필요 광고비 = (광고기여매출 ÷ AOV ÷ CVR) × CPC</b>
     </li>
     <li><b>ROAS</b> = 전체매출 ÷ 광고비</li>
-    <li class="smallcap">브랜드 내부 탭은 추가로 원가/물류/고정비(인건비 포함)를 반영해 영업이익을 계산합니다.</li>
   </ul>
-
-  <hr class="soft"/>
-
-  <h3>고점지수란?</h3>
-  <ul>
-    <li>추천엔진에서 “<b>현재 효율(ROAS/ROI)</b>”과 “<b>성장 잠재력</b>”을 함께 비교하기 위한 보조 지표입니다.</li>
-    <li>구성 요소: <b>월성장률</b>, <b>재구매율</b>, <b>광고의존도</b></li>
-    <li class="smallcap">고점지수 산식은 코드의 <code>_ceiling_index()</code>를 그대로 따릅니다(설명용).</li>
-  </ul>
-
-  <hr class="soft"/>
-
-  <div class="smallcap">※ 입력 기반 시뮬레이션이며 실제 성과는 운영/상품/시즌 요인에 따라 달라질 수 있습니다.</div>
+  <div class="smallcap" style="margin-top:10px;">※ 브랜드 내부 탭은 원가/물류/고정비(인건비 포함)를 추가 반영해 영업이익을 계산합니다.</div>
 </div>
-    """,
-    unsafe_allow_html=True
-)
+""", unsafe_allow_html=True)
+
+    with col_g2:
+        st.markdown("""
+<div class="card">
+  <h3>📊 지표 설명</h3>
+  <hr class="soft"/>
+  <div style="display:flex;flex-direction:column;gap:10px;">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span class="badge" style="min-width:80px;justify-content:center;">AOV</span>
+      <span style="color:#94A3B8;font-size:13px;">객단가 (평균 주문금액)</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span class="badge" style="min-width:80px;justify-content:center;">CPC</span>
+      <span style="color:#94A3B8;font-size:13px;">클릭당 비용 (원)</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span class="badge" style="min-width:80px;justify-content:center;">CVR</span>
+      <span style="color:#94A3B8;font-size:13px;">전환율 (주문수 / 클릭수)</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span class="badge" style="min-width:80px;justify-content:center;">ROAS</span>
+      <span style="color:#94A3B8;font-size:13px;">광고비 대비 매출 (전체매출 ÷ 광고비)</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span class="badge badge-purple" style="min-width:80px;justify-content:center;">광고기여율</span>
+      <span style="color:#94A3B8;font-size:13px;">전체매출 중 광고가 기여한 비중 (0~1)</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span class="badge badge-success" style="min-width:80px;justify-content:center;">재구매율</span>
+      <span style="color:#94A3B8;font-size:13px;">전체주문 중 재구매 주문 비중 (0~1)</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span class="badge badge-warning" style="min-width:80px;justify-content:center;">월성장률</span>
+      <span style="color:#94A3B8;font-size:13px;">월 기준 매출 성장률 (음수 가능)</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span class="badge" style="min-width:80px;justify-content:center;background:rgba(239,68,68,0.1);color:#FCA5A5;border-color:rgba(239,68,68,0.2);">광고의존도</span>
+      <span style="color:#94A3B8;font-size:13px;">성장 시 광고비 증가 민감도</span>
+    </div>
+  </div>
+</div>
+<div class="card" style="margin-top:12px;">
+  <h3>📈 고점지수란?</h3>
+  <hr class="soft"/>
+  <ul class="guide-list">
+    <li>추천엔진에서 <b>현재 효율(ROAS/ROI)</b>과 <b>성장 잠재력</b>을 함께 비교하는 보조 지표</li>
+    <li>구성: <b>월성장률</b> (+) · <b>재구매율</b> (+) · <b>광고의존도</b> (−)</li>
+    <li>값이 높을수록 → 성장 여력 ↑, 유기적 매출 기반 ↑</li>
+  </ul>
+  <div class="smallcap" style="margin-top:10px;padding:8px 12px;background:rgba(79,142,247,0.06);border-radius:6px;border-left:3px solid rgba(79,142,247,0.4);">
+    고점지수 = 1.0 + (성장 보너스) + (재구매 보너스) − (광고의존 패널티)
+  </div>
+</div>
+<div style="margin-top:12px;padding:12px 16px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.15);border-radius:10px;">
+  <div style="color:#FCD34D;font-size:11.5px;font-weight:600;">⚠️ 주의사항</div>
+  <div style="color:#94A3B8;font-size:12.5px;margin-top:4px;line-height:1.7;">
+    입력 기반 시뮬레이션이며, 실제 성과는 운영·상품·시즌 요인에 따라 달라질 수 있습니다.
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
 
 # =========================
@@ -1648,13 +2221,21 @@ def agency_internal_pl(perf_out: pd.DataFrame, viral_out: pd.DataFrame, labor_co
 # Tab: Agency
 # =========================
 with tab_agency:
-    st.markdown("## 대행 모드")
+    st.markdown("""
+<div class="page-header">
+  <div class="ph-icon">🏢</div>
+  <div>
+    <div class="ph-title">대행 모드</div>
+    <div class="ph-sub">광고비 ↔ 매출 양방향 시뮬레이션 · 미디어 믹스 · 내부 손익</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
     submode = st.radio("버전 선택", ["외부(클라이언트 제안용)", "내부(운영/정산용)"], horizontal=True, key="agency_sub")
 
     st.markdown(f"<div class='smallcap'>선택 시나리오: <span class='badge'>{sel_disp}</span></div>", unsafe_allow_html=True)
     st.divider()
 
-    st.markdown("### 입력 (시뮬레이션)")
+    st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">⚙️ 입력 (시뮬레이션)</div></div>', unsafe_allow_html=True)
     use_scn_kpi = st.toggle("시나리오 KPI 자동 사용(권장)", value=True, key="use_scn_kpi_ag")
 
     cG1, cG2, cG3 = st.columns(3)
@@ -1706,7 +2287,7 @@ with tab_agency:
     )
 
     st.divider()
-    st.markdown("### 결과 요약(대행: 마케팅 성과 관점)")
+    st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">📊 결과 요약 · 마케팅 성과</div></div>', unsafe_allow_html=True)
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("예상 매출(총)", fmt_won(sim["revenue"]))
     m2.metric("필요/입력 광고비", fmt_won(sim["ad_spend"]))
@@ -1731,7 +2312,7 @@ with tab_agency:
     )
 
     st.divider()
-    st.markdown("## 미디어 믹스 (예산/건수 수정 가능)")
+    st.markdown('<div class="section-header" style="margin-top:20px;"><div class="sh-bar"></div><div class="sh-title">📺 미디어 믹스 (예산/건수 수정 가능)</div></div>', unsafe_allow_html=True)
 
     perf_budget = float(sim["ad_spend"]) * float(group_share.get("퍼포먼스", 1.0))
     viral_budget = float(sim["ad_spend"]) * float(group_share.get("바이럴", 0.0))
@@ -1749,14 +2330,14 @@ with tab_agency:
     medium_share = viral_medium_shares(media_share["viral"])
     viral_df = build_viral_mix_table(viral_price, medium_share, viral_budget)
 
-    st.markdown("### 퍼포먼스(예산 수정 가능)")
+    st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">🎯 퍼포먼스 (예산 수정 가능)</div></div>', unsafe_allow_html=True)
     if perf_df.empty:
         st.info("퍼포먼스 믹스 데이터가 비어있습니다(해당 시나리오 비율 0).")
         perf_out = perf_df
     else:
         perf_out = editable_perf_table(perf_df, submode=submode, key_prefix=f"ag_{scenario_key}")
 
-    st.markdown("### 바이럴(건수 수정 가능)")
+    st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">📢 바이럴 (건수 수정 가능)</div></div>', unsafe_allow_html=True)
     if viral_df.empty:
         st.info("바이럴 믹스 데이터가 비어있습니다(해당 시나리오 비율 0).")
         viral_out = viral_df
@@ -1764,7 +2345,7 @@ with tab_agency:
         viral_out = editable_viral_table(viral_df, submode=submode, key_prefix=f"ag_{scenario_key}")
 
     st.divider()
-    st.markdown("### 통합 미디어 믹스 표(퍼포먼스/바이럴)")
+    st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">📋 통합 미디어 믹스표</div></div>', unsafe_allow_html=True)
     mix_df = unify_mix_table(perf_out, viral_out)
     if mix_df.empty:
         st.info("통합 미디어 믹스 데이터가 없습니다.")
@@ -1778,7 +2359,7 @@ with tab_agency:
     # ✅ 핵심 수정: 대행 내부 손익(인건비 포함)
     if submode.startswith("내부"):
         st.divider()
-        st.markdown("## 대행 내부 손익(수수료/마진 - 인건비)")
+        st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">💰 대행 내부 손익 · 수수료/마진 − 인건비</div></div>', unsafe_allow_html=True)
 
         cL1, cL2 = st.columns(2)
         with cL1:
@@ -1810,7 +2391,15 @@ with tab_agency:
 #  사용자 요구가 '대행 인건비' + '추천엔진'이라 브랜드 탭은 기존 코드 그대로 사용하면 됩니다.)
 # =========================
 with tab_brand:
-    st.markdown("## 브랜드사 모드")
+    st.markdown("""
+<div class="page-header">
+  <div class="ph-icon">🏷️</div>
+  <div>
+    <div class="ph-title">브랜드사 모드</div>
+    <div class="ph-sub">매출 전망 · 채널별 계획 · 재고 소진 · 인건비 포함 손익</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
     submode_b = st.radio("버전 선택", ["외부(브랜드사 공유용)", "내부(브랜드 운영/검증용)"], horizontal=True, key="brand_sub")
     st.markdown(f"<div class='smallcap'>선택 시나리오: <span class='badge'>{sel_disp}</span></div>", unsafe_allow_html=True)
     st.divider()
@@ -1824,7 +2413,7 @@ with tab_brand:
     st.divider()
 
     if submode_b.startswith("외부"):
-        st.markdown("### (외부) 대략 전망: 매출/물량/재고소진")
+        st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">📈 대략 전망 · 매출 / 물량 / 재고소진</div></div>', unsafe_allow_html=True)
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             months = st.selectbox("기간(개월)", options=[3, 6, 12], index=2, key="b_months")
@@ -1890,7 +2479,7 @@ with tab_brand:
             st.plotly_chart(fig_rev_tm2, use_container_width=True, key=f"rev_tm_brand_ext_{scenario_key}")
 
         st.divider()
-        st.markdown("### 월별 총매출/판매수량(외부)")
+        st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">📅 월별 총매출 / 판매수량</div></div>', unsafe_allow_html=True)
         df_show = df_m.copy()
         df_show["총매출"] = df_show["총매출"].map(lambda x: f"{x:,.0f}")
         df_show["예상판매수량(개)"] = df_show["예상판매수량(개)"].map(lambda x: f"{x:,.0f}")
@@ -1898,7 +2487,7 @@ with tab_brand:
         st.dataframe(df_show, use_container_width=True, hide_index=True)
 
     else:
-        st.markdown("### (내부) 운영/검증: 매출 + 필요광고비 + 마진/인건비 + 채널별 매출")
+        st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">🔍 운영/검증 · 매출 + 필요광고비 + 마진/인건비</div></div>', unsafe_allow_html=True)
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             months = st.selectbox("기간(개월)", options=[3, 6, 12], index=2, key="b_months_int")
@@ -2035,7 +2624,7 @@ with tab_brand:
             st.plotly_chart(fig_rev_tm2, use_container_width=True, key=f"rev_tm_brand_int_{scenario_key}")
 
         st.divider()
-        st.markdown("### (내부) 판매채널별 매출 계획(월별)")
+        st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">🏪 판매채널별 월별 매출 계획</div></div>', unsafe_allow_html=True)
         ch_rows = []
         for _, r in df_fore.iterrows():
             ym = r["월"]
@@ -2060,7 +2649,7 @@ with tab_brand:
             )
 
         st.divider()
-        st.markdown("### (내부) 월별 상세 테이블")
+        st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">📋 월별 상세 테이블</div></div>', unsafe_allow_html=True)
         disp = df_fore.copy()
         for c in ["총매출","필요광고비","광고기여매출","재구매매출","영업이익(월)"]:
             disp[c] = disp[c].map(lambda x: f"{x:,.0f}")
@@ -2073,7 +2662,15 @@ with tab_brand:
 # Tab: Recommendation (Classic Top3 + Compare Panel)
 # =========================
 with tab_rec:
-    st.markdown("## 추천 엔진")
+    st.markdown("""
+<div class="page-header">
+  <div class="ph-icon">🤖</div>
+  <div>
+    <div class="ph-title">추천 엔진</div>
+    <div class="ph-sub">시나리오 Top3 추천 · ROAS/ROI vs 고점지수 비교 분석</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
     st.markdown("<div class='smallcap'>예전 방식 Top3 추천 + ROI/고점(성장·재구매·광고의존) 비교</div>", unsafe_allow_html=True)
     st.divider()
 
@@ -2206,7 +2803,7 @@ with tab_rec:
     top10 = rows[:10]
 
     # ---- Top3 카드(예전처럼 3컬럼) ----
-    st.markdown("### Top3 추천")
+    st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">🥇 Top 3 추천 시나리오</div></div>', unsafe_allow_html=True)
     cA, cB, cC = st.columns(3)
 
     def _render_card(col, idx, item):
@@ -2289,7 +2886,7 @@ with tab_rec:
 
     # ---- 비교 패널(여기서 “ROI 낮지만 고점 높은 것”까지 한눈에) ----
     st.divider()
-    st.markdown("### 시나리오 비교(Top10)")
+    st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">📊 시나리오 비교 (Top 10)</div></div>', unsafe_allow_html=True)
     st.caption("‘지금 ROAS/ROI’ vs ‘고점(성장·재구매·광고의존)’을 동시에 보고 최종 선택하세요.")
 
     cmp_rows = []
@@ -2371,7 +2968,15 @@ with tab_rec:
             hover_data=["키", "Score", "월성장률", "재구매율", "광고기여율"],
             title="ROAS(현재 효율) vs 고점지수(성장·재구매·의존 리스크)"
         )
-        fig.update_layout(height=420, margin=dict(t=50, b=10, l=10, r=10))
+        fig.update_layout(
+            height=420, margin=dict(t=50, b=10, l=10, r=10),
+            paper_bgcolor=PLOTLY_DARK["paper_bgcolor"],
+            plot_bgcolor=PLOTLY_DARK["plot_bgcolor"],
+            font=PLOTLY_DARK["font"],
+            title_font=PLOTLY_DARK["title_font"],
+            xaxis=dict(gridcolor="rgba(79,142,247,0.08)", color="#64748B"),
+            yaxis=dict(gridcolor="rgba(79,142,247,0.08)", color="#64748B"),
+        )
         st.plotly_chart(fig, use_container_width=True, key="rec_compare_scatter")
 
         # 최종 선택(테이블에서 바로)
@@ -2384,7 +2989,15 @@ with tab_rec:
 # Tab: Custom Scenario (기존 유지)
 # =========================
 with tab_custom:
-    st.markdown("## 커스텀 시나리오")
+    st.markdown("""
+<div class="page-header">
+  <div class="ph-icon">⚙️</div>
+  <div>
+    <div class="ph-title">커스텀 시나리오</div>
+    <div class="ph-sub">시나리오 기반 비중/예산을 직접 수정해 즉시 결과 확인</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
     st.markdown("<div class='smallcap'>시나리오 자동 분배값 기반으로, 비중/예산을 직접 수정해 결과를 확인합니다.</div>", unsafe_allow_html=True)
     st.divider()
 
@@ -2426,7 +3039,7 @@ with tab_custom:
         viral_price_custom = st.data_editor(DEFAULT_VIRAL_PRICE.copy(), num_rows="dynamic", use_container_width=True, key="custom_viral_price")
 
     st.divider()
-    st.markdown("### 커스텀 시뮬레이션 입력")
+    st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">⚙️ 시뮬레이션 입력</div></div>', unsafe_allow_html=True)
     cA, cB, cC, cD = st.columns(4)
     with cA:
         calc_mode_c = st.radio("계산 방식", ["광고비 입력 → 매출 산출", "매출 입력 → 필요 광고비 산출"], horizontal=True, key="custom_calc_mode")
@@ -2464,7 +3077,7 @@ with tab_custom:
         repurchase_rate=float(repurchase_c),
     )
 
-    st.markdown("### 커스텀 결과")
+    st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">📊 시뮬레이션 결과</div></div>', unsafe_allow_html=True)
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("예상 매출(총)", fmt_won(sim_c["revenue"]))
     m2.metric("예상 광고비", fmt_won(sim_c["ad_spend"]))
@@ -2472,7 +3085,7 @@ with tab_custom:
     m4.metric("광고기여 매출", fmt_won(sim_c["ad_revenue"]))
 
     st.divider()
-    st.markdown("### 커스텀 미디어 믹스(예산 수정 가능)")
+    st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">📺 커스텀 미디어 믹스</div></div>', unsafe_allow_html=True)
 
     perf_budget_c = float(sim_c["ad_spend"]) * float(group_custom.get("퍼포먼스", 1.0))
     viral_budget_c = float(sim_c["ad_spend"]) * float(group_custom.get("바이럴", 0.0))
@@ -2480,14 +3093,14 @@ with tab_custom:
     perf_df_c = build_performance_mix_table(perf_custom, perf_budget_c) if perf_custom else pd.DataFrame()
     viral_df_c = build_viral_mix_table(viral_price_custom, viral_medium_shares(viral_custom), viral_budget_c) if viral_custom else pd.DataFrame()
 
-    st.markdown("#### 퍼포먼스")
+    st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">🎯 퍼포먼스</div></div>', unsafe_allow_html=True)
     if perf_df_c.empty:
         st.info("커스텀 퍼포먼스 믹스가 없습니다.")
         perf_out_c = perf_df_c
     else:
         perf_out_c = editable_perf_table(perf_df_c, submode="외부", key_prefix="custom")
 
-    st.markdown("#### 바이럴")
+    st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">📢 바이럴</div></div>', unsafe_allow_html=True)
     if viral_df_c.empty:
         st.info("커스텀 바이럴 믹스가 없습니다.")
         viral_out_c = viral_df_c
@@ -2502,7 +3115,15 @@ with tab_custom:
 # Tab: Sales Plan (기존 유지)
 # =========================
 with tab_plan:
-    st.markdown("## 매출 계획 (브랜드별 1~12월)")
+    st.markdown("""
+<div class="page-header">
+  <div class="ph-icon">📅</div>
+  <div>
+    <div class="ph-title">매출 계획</div>
+    <div class="ph-sub">브랜드별 1~12월 계획 생성 · CSV 업로드 · 피벗 뷰</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
     st.markdown("<div class='smallcap'>브랜드명/전략 입력 또는 템플릿 CSV 업로드 → 월별 계획을 한 번에 보고 편집합니다.</div>", unsafe_allow_html=True)
     st.divider()
 
@@ -2527,11 +3148,11 @@ with tab_plan:
                     plan_raw[bud_col] = plan_raw[bud_col].apply(lambda x: to_float(x, 0.0))
 
                 p_rev = plan_raw.pivot_table(index=brand_col, columns=month_col, values=rev_col, aggfunc="sum").fillna(0.0)
-                st.markdown("### 브랜드별 월별 매출(편집 가능)")
+                st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">📈 브랜드별 월별 매출</div></div>', unsafe_allow_html=True)
                 st.data_editor(p_rev.reset_index(), use_container_width=True, key="plan_pivot_rev")
 
                 if bud_col and bud_col in plan_raw.columns:
-                    st.markdown("### 브랜드별 월별 광고비(편집 가능)")
+                    st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">💸 브랜드별 월별 광고비</div></div>', unsafe_allow_html=True)
                     p_bud = plan_raw.pivot_table(index=brand_col, columns=month_col, values=bud_col, aggfunc="sum").fillna(0.0)
                     st.data_editor(p_bud.reset_index(), use_container_width=True, key="plan_pivot_budget")
 
@@ -2539,11 +3160,20 @@ with tab_plan:
                 totals.columns = ["Brand", "TotalRevenue"]
                 fig = px.bar(totals, x="Brand", y="TotalRevenue", text="TotalRevenue")
                 fig.update_traces(texttemplate="%{text:,.0f}", textposition="outside")
-                fig.update_layout(height=380, margin=dict(t=10), yaxis_title=None, xaxis_title=None, title="브랜드별 연간 매출 합계")
+                fig.update_layout(
+                    height=380, margin=dict(t=50, b=10, l=10, r=10),
+                    yaxis_title=None, xaxis_title=None,
+                    title=dict(text="브랜드별 연간 매출 합계", font=PLOTLY_DARK["title_font"], x=0.01),
+                    paper_bgcolor=PLOTLY_DARK["paper_bgcolor"], plot_bgcolor=PLOTLY_DARK["plot_bgcolor"],
+                    font=PLOTLY_DARK["font"],
+                    xaxis=dict(gridcolor="rgba(79,142,247,0.08)", color="#64748B"),
+                    yaxis=dict(gridcolor="rgba(79,142,247,0.08)", color="#64748B"),
+                    colorway=PLOTLY_DARK["colorway"],
+                )
                 st.plotly_chart(fig, use_container_width=True, key="plan_bar_total")
 
     else:
-        st.markdown("### 브랜드 입력(여러 개 가능)")
+        st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">✏️ 브랜드 입력</div></div>', unsafe_allow_html=True)
         seed = pd.DataFrame([
             {"Brand": "브랜드A", "전략": "Aggressive", "시작월(YYYY-MM)": "2026-01", "월매출(원)": 200000000, "월광고비(원)": 50000000, "월성장률(%)": 0.0},
         ])
@@ -2581,10 +3211,10 @@ with tab_plan:
         if plan_long.empty:
             st.info("브랜드를 최소 1개 입력하세요.")
         else:
-            st.markdown("### 월별 계획(편집 가능)")
+            st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">📅 월별 계획</div></div>', unsafe_allow_html=True)
             plan_edit = st.data_editor(plan_long, use_container_width=True, key="plan_long_editor")
 
-            st.markdown("### 브랜드별 월별 매출(피벗)")
+            st.markdown('<div class="section-header"><div class="sh-bar"></div><div class="sh-title">📊 브랜드별 월별 매출 (피벗)</div></div>', unsafe_allow_html=True)
             p = plan_edit.pivot_table(index="Brand", columns="Month", values="매출(원)", aggfunc="sum").fillna(0.0)
             st.data_editor(p.reset_index(), use_container_width=True, key="plan_pivot_from_manual")
 
@@ -2592,5 +3222,14 @@ with tab_plan:
             totals.columns = ["Brand", "TotalRevenue"]
             fig = px.bar(totals, x="Brand", y="TotalRevenue", text="TotalRevenue")
             fig.update_traces(texttemplate="%{text:,.0f}", textposition="outside")
-            fig.update_layout(height=380, margin=dict(t=10), yaxis_title=None, xaxis_title=None, title="브랜드별 연간 매출 합계")
+            fig.update_layout(
+                height=380, margin=dict(t=50, b=10, l=10, r=10),
+                yaxis_title=None, xaxis_title=None,
+                title=dict(text="브랜드별 연간 매출 합계", font=PLOTLY_DARK["title_font"], x=0.01),
+                paper_bgcolor=PLOTLY_DARK["paper_bgcolor"], plot_bgcolor=PLOTLY_DARK["plot_bgcolor"],
+                font=PLOTLY_DARK["font"],
+                xaxis=dict(gridcolor="rgba(79,142,247,0.08)", color="#64748B"),
+                yaxis=dict(gridcolor="rgba(79,142,247,0.08)", color="#64748B"),
+                colorway=PLOTLY_DARK["colorway"],
+            )
             st.plotly_chart(fig, use_container_width=True, key="plan_bar_total_manual")
