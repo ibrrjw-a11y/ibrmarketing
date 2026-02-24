@@ -11,211 +11,7 @@ import numpy as np
 import re
 from io import StringIO
 from typing import Optional, Dict, List, Tuple
-# =========================================================
-# ✅ PPT 템플릿 기반 완성본 생성 함수
-# =========================================================
-from io import BytesIO
-try:
-    from pptx import Presentation
-    from pptx.util import Inches, Pt
-    from pptx.enum.text import PP_ALIGN
-    from pptx.dml.color import RGBColor
-    HAS_PPTX_FULL = True
-except ImportError:
-    HAS_PPTX_FULL = False
 
-def replace_text_in_slide(slide, replacements):
-    """슬라이드 내 모든 텍스트에서 플레이스홀더 치환"""
-    for shape in slide.shapes:
-        if not shape.has_text_frame:
-            continue
-        
-        text_frame = shape.text_frame
-        for paragraph in text_frame.paragraphs:
-            for run in paragraph.runs:
-                original_text = run.text
-                for key, value in replacements.items():
-                    if key in original_text:
-                        run.text = original_text.replace(key, str(value))
-                        original_text = run.text
-
-def update_table_in_slide(slide, data_rows, start_row=1):
-    """슬라이드에서 첫 번째 테이블을 찾아 데이터로 업데이트"""
-    table_shape = None
-    for shape in slide.shapes:
-        if shape.has_table:
-            table_shape = shape
-            break
-    
-    if table_shape and data_rows:
-        table = table_shape.table
-        
-        # 기존 데이터 행 제거 (헤더 제외)
-        for row_idx in range(len(table.rows) - 1, start_row - 1, -1):
-            if row_idx >= len(table.rows):
-                continue
-            # 행 내용만 비우기 (행 삭제는 복잡하므로)
-            for col_idx in range(len(table.columns)):
-                table.cell(row_idx, col_idx).text = ""
-        
-        # 새 데이터 입력
-        for idx, row_data in enumerate(data_rows):
-            row_idx = start_row + idx
-            if row_idx >= len(table.rows):
-                break  # 테이블 크기 초과 시 중단
-            
-            for col_idx, cell_value in enumerate(row_data):
-                if col_idx >= len(table.columns):
-                    break
-                
-                cell = table.cell(row_idx, col_idx)
-                cell.text = str(cell_value)
-                
-                # 기본 서식 적용
-                for paragraph in cell.text_frame.paragraphs:
-                    paragraph.font.size = Pt(10)
-
-def add_chart_image_to_slide(slide, plotly_fig, left_inches, top_inches, width_inches, height_inches):
-    """Plotly 차트를 이미지로 변환하여 슬라이드에 추가"""
-    try:
-        # Plotly 차트를 PNG 이미지로 변환
-        img_bytes = plotly_fig.to_image(format="png", width=800, height=600, scale=2)
-        
-        # 슬라이드에 이미지 추가
-        left = Inches(left_inches)
-        top = Inches(top_inches)
-        width = Inches(width_inches)
-        height = Inches(height_inches)
-        
-        slide.shapes.add_picture(BytesIO(img_bytes), left, top, width, height)
-        return True
-    except Exception as e:
-        print(f"차트 이미지 추가 실패: {e}")
-        return False
-
-def generate_complete_proposal_pptx(
-    template_bytes, 
-    scenario_name, 
-    sim_data, 
-    mix_df, 
-    rev_share, 
-    group_share,
-    aov, 
-    cpc, 
-    cvr,
-    ad_contrib_in,
-    repurchase_in,
-    charts=None
-):
-    """
-    업로드된 PPT 템플릿을 기반으로 4개 슬라이드만 업데이트
-    - 나머지 슬라이드는 완전히 보존
-    - 4번(idx=3), 6번(idx=5), 7번(idx=6), 8번(idx=7) 슬라이드만 수정
-    """
-    # 템플릿 로드
-    prs = Presentation(BytesIO(template_bytes))
-    
-    # 공통 치환 데이터 준비
-    replacements = {
-        "{{SCENARIO}}": scenario_name,
-        "{{SCENARIO_NAME}}": scenario_name,
-        "{{REVENUE}}": f"{sim_data['revenue']:,.0f}",
-        "{{TOTAL_REVENUE}}": f"₩{sim_data['revenue']:,.0f}",
-        "{{AD_SPEND}}": f"{sim_data['ad_spend']:,.0f}",
-        "{{TOTAL_BUDGET}}": f"₩{sim_data['ad_spend']:,.0f}",
-        "{{BUDGET}}": f"₩{sim_data['ad_spend']:,.0f}",
-        "{{ROAS}}": f"{sim_data['roas']:.2f}x",
-        "{{ROAS_X}}": f"{sim_data['roas']:.2f}x",
-        "{{ROAS_PCT}}": f"{sim_data['roas']*100:.0f}%",
-        "{{AD_CONTRIB}}": f"{sim_data['ad_contrib_rate']*100:.1f}%",
-        "{{AD_REVENUE}}": f"₩{sim_data['ad_revenue']:,.0f}",
-        "{{REPEAT_REVENUE}}": f"₩{sim_data['repeat_revenue']:,.0f}",
-        "{{AOV}}": f"₩{aov:,.0f}",
-        "{{CPC}}": f"₩{cpc:,.0f}",
-        "{{CVR}}": f"{cvr*100:.1f}%",
-        "{{PERF_PCT}}": f"{group_share.get('퍼포먼스',0)*100:.1f}%",
-        "{{VIRAL_PCT}}": f"{group_share.get('바이럴',0)*100:.1f}%",
-        "{{SHARE_PERF}}": f"{group_share.get('퍼포먼스',0)*100:.1f}%",
-        "{{SHARE_VIRAL}}": f"{group_share.get('바이럴',0)*100:.1f}%",
-    }
-    
-    # ========================================
-    # 4번 슬라이드: Science-Driven Marketing (Index 3)
-    # ========================================
-    if len(prs.slides) > 3:
-        slide4 = prs.slides[3]
-        replace_text_in_slide(slide4, replacements)
-        
-        # 차트가 있으면 추가
-        if charts and "science_chart" in charts:
-            add_chart_image_to_slide(slide4, charts["science_chart"], 6.0, 2.0, 3.5, 2.5)
-    
-    # ========================================
-    # 6번 슬라이드: IBR Sales Simulator (Index 5)
-    # ========================================
-    if len(prs.slides) > 5:
-        slide6 = prs.slides[5]
-        replace_text_in_slide(slide6, replacements)
-    
-    # ========================================
-    # 7번 슬라이드: 마케팅 미디어 믹스 (Index 6)
-    # ========================================
-    if len(prs.slides) > 6:
-        slide7 = prs.slides[6]
-        replace_text_in_slide(slide7, replacements)
-        
-        # 미디어 믹스 테이블 업데이트
-        if not mix_df.empty:
-            table_data = []
-            for _, row in mix_df.iterrows():
-                budget_val = row.get("예산(계획)", 0)
-                table_data.append([
-                    str(row.get("구분", "")),
-                    str(row.get("매체", "")),
-                    str(row.get("지면/캠페인", "")),
-                    f"₩{int(budget_val):,}"
-                ])
-            
-            update_table_in_slide(slide7, table_data)
-        
-        # 광고 믹스 트리맵 추가
-        if charts and "ads_treemap" in charts:
-            add_chart_image_to_slide(slide7, charts["ads_treemap"], 5.5, 2.5, 4.0, 3.0)
-    
-    # ========================================
-    # 8번 슬라이드: Analysis (판매채널 분석) (Index 7)
-    # ========================================
-    if len(prs.slides) > 7:
-        slide8 = prs.slides[7]
-        replace_text_in_slide(slide8, replacements)
-        
-        # 판매채널 테이블 업데이트
-        channel_data = []
-        for idx, (ch, share) in enumerate(sorted(rev_share.items(), key=lambda x: x[1], reverse=True)):
-            if share <= 0:
-                continue
-            ch_rev = float(sim_data["revenue"]) * float(share)
-            ch_type = "Online" if any(x in ch for x in ["자사", "스마트", "스토어", "쿠팡", "공구", "홈쇼핑", "카카오"]) else "Offline"
-            
-            channel_data.append([
-                str(idx + 1),  # 순번
-                ch_type,       # 구분
-                ch,            # Channel
-                f"{int(ch_rev):,}",  # Revenue
-                f"{share*100:.2f}%"  # Share
-            ])
-        
-        update_table_in_slide(slide8, channel_data)
-        
-        # 매출 채널 트리맵 추가
-        if charts and "rev_treemap" in charts:
-            add_chart_image_to_slide(slide8, charts["rev_treemap"], 5.5, 2.5, 4.0, 3.0)
-    
-    # PPT 저장
-    output = BytesIO()
-    prs.save(output)
-    output.seek(0)
-    return output.getvalue()
 # -------------------------
 # Optional dependency: Plotly
 # -------------------------
@@ -947,150 +743,135 @@ def rev_bucket(channel_name: str) -> str:
         return "오프라인"
     return "온라인(기타)"
 
-def treemap_revenue(rev_share: Dict[str, float], height=450, title="매출 채널 구성(트리맵)"):
-    """
-    고도화된 트리맵: 첨부2 이미지 스타일
-    - Online Market (블루 계열) vs Offline/Other (그린 계열)
-    - 큰 글씨 + 퍼센트 표시
-    - 흰색 테두리로 구분선 명확화
-    """
-    if not rev_share:
-        return None
-
+def treemap_revenue(rev_share: Dict[str, float], height=380, title="매출 채널 구성(트리맵)"):
     rows = []
-    for ch, v in rev_share.items():
+    for ch, v in (rev_share or {}).items():
         if v <= 0:
             continue
-        
-        # 채널을 Online/Offline으로 분류
-        bucket = rev_bucket(ch)
-        if bucket in ["자사몰", "스마트스토어", "쿠팡", "온라인(기타)"]:
-            legend = "Online Market"
-            color_group = "Online"
-        else:
-            legend = "Offline / Other" 
-            color_group = "Offline"
-            
-        rows.append({
-            "Legend": legend,
-            "채널": ch,
-            "비중": float(v),
-            "ColorGroup": color_group
-        })
+        rows.append({"그룹": rev_bucket(ch), "채널": ch, "비중": float(v)})
 
     if not rows:
         return None
 
     df = pd.DataFrame(rows)
-    
-    # ✅ 핵심: 첨부2 이미지와 동일한 색상 매핑
-    color_map = {
-        "Online Market": "#4285F4",    # 구글 블루
-        "Offline / Other": "#34A853"   # 구글 그린
-    }
-    
+
+    # ✅ 핵심: 색상을 '그룹' 기준으로 고정 → 그룹별 1색(알록달록 방지)
     fig = px.treemap(
         df,
-        path=["Legend", "채널"],
+        path=["그룹", "채널"],
         values="비중",
-        color="Legend",
-        color_discrete_map=color_map
+        color="그룹",
     )
-    
-    # ✅ 텍스트 스타일: 큰 글씨 + 볼드 + 퍼센트
+
+    fig.update_layout(height=height, margin=dict(t=50, b=10, l=10, r=10), title=title)
     fig.update_traces(
-        texttemplate="<b>%{label}</b><br><span style='font-size:18px;'>%{value:.1%}</span>",
-        textposition="middle center",
-        textfont=dict(
-            size=16,
-            color="white",
-            family="Arial Black, sans-serif"
-        ),
-        marker=dict(
-            line=dict(width=3, color="white"),  # 흰색 테두리
-            cornerradius=8  # 둥근 모서리
-        ),
-        hovertemplate="<b>%{label}</b><br>비중: %{value:.2%}<extra></extra>"
+        texttemplate="%{label}<br>%{value:.1%}",
+        marker=dict(line=dict(width=2, color="rgba(255,255,255,0.85)"))
     )
-    
-    fig.update_layout(
-        height=height,
-        margin=dict(t=50, b=15, l=15, r=15),
-        title=dict(
-            text=title,
-            font=dict(size=20, color="#2E5BFF", family="Arial Black"),
-            x=0.5
-        ),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(size=14)
-    )
-    
     return fig
 
 
-def treemap_ads(perf_df: pd.DataFrame, viral_df: pd.DataFrame, height=450, title="광고 믹스(트리맵)"):
-    """광고 믹스 트리맵도 동일한 스타일로 고도화"""
+def treemap_ads(perf_df: pd.DataFrame, viral_df: pd.DataFrame, height=430, title="광고 믹스(트리맵: 퍼포먼스/바이럴 색 구분)"):
+    """
+    광고 믹스 트리맵
+    - 퍼포먼스/바이럴을 1차 그룹으로 크게 구분
+    - 2차는 '매체'까지만 보여서 너무 잘게 쪼개지는 문제 방지
+    - 색상도 그룹 기준으로 통일(퍼포먼스 vs 바이럴 한눈에)
+    """
     rows = []
 
-    # 퍼포먼스 (블루)
+    # 퍼포먼스
     if perf_df is not None and not perf_df.empty:
         for _, r in perf_df.iterrows():
-            media = str(r.get("매체", "") or "").strip()
-            budget = float(r.get("예산(계획)", 0) or 0)
-            if budget > 0:
-                rows.append({
-                    "그룹": "퍼포먼스",
-                    "매체": media,
-                    "예산": budget
-                })
+            rows.append({
+                "그룹": "퍼포먼스",
+                "매체": str(r.get("매체", "") or "").strip(),
+                "예산": float(r.get("예산(계획)", 0) or 0),
+            })
 
-    # 바이럴 (그린)
+    # 바이럴
     if viral_df is not None and not viral_df.empty:
         for _, r in viral_df.iterrows():
-            media = str(r.get("매체", "") or "").strip()
-            budget = float(r.get("예산(계획)", 0) or 0)
-            if budget > 0:
-                rows.append({
-                    "그룹": "바이럴",
-                    "매체": media,
-                    "예산": budget
-                })
+            rows.append({
+                "그룹": "바이럴",
+                "매체": str(r.get("매체", "") or "").strip(),
+                "예산": float(r.get("예산(계획)", 0) or 0),
+            })
 
     if not rows:
         return None
 
     df = pd.DataFrame(rows)
-    
-    color_map = {
-        "퍼포먼스": "#4285F4",  # 블루
-        "바이럴": "#34A853"     # 그린
-    }
-    
+    df["예산"] = df["예산"].fillna(0.0).astype(float)
+    df = df[df["예산"] > 0]
+
+    if df.empty:
+        return None
+
+    # ✅ 핵심: path를 ["그룹","매체"]까지만 (지면 제거)
+    # ✅ 핵심: color를 "그룹"으로 고정해서 퍼포먼스/바이럴 색이 확실히 구분되게
     fig = px.treemap(
         df,
         path=["그룹", "매체"],
         values="예산",
         color="그룹",
-        color_discrete_map=color_map
     )
-    
-    fig.update_traces(
-        texttemplate="<b>%{label}</b><br>%{value:,.0f}원",
-        textposition="middle center",
-        textfont=dict(size=15, color="white", family="Arial Black"),
-        marker=dict(line=dict(width=3, color="white"), cornerradius=8)
-    )
-    
-    fig.update_layout(
-        height=height,
-        margin=dict(t=50, b=15, l=15, r=15),
-        title=dict(text=title, font=dict(size=20, color="#2E5BFF"), x=0.5),
-        paper_bgcolor="rgba(0,0,0,0)"
-    )
-    
+    fig.update_layout(height=height, margin=dict(t=50, b=10, l=10, r=10), title=title)
+    fig.update_traces(marker=dict(line=dict(width=2, color="rgba(255,255,255,0.85)")))
     return fig
 
+
+# =========================
+# Compare chart
+# =========================
+def compare_chart(df_cmp: pd.DataFrame, x_col: str, rev_col: str, ad_col: str, roas_col: str, height=420, title=""):
+    fig = go.Figure()
+
+    fig.add_trace(go.Bar(
+        x=df_cmp[x_col], y=df_cmp[rev_col], name="예상매출", yaxis="y1",
+        hovertemplate="%{y:,.0f}원<extra></extra>"
+    ))
+    fig.add_trace(go.Bar(
+        x=df_cmp[x_col], y=df_cmp[ad_col], name="예상광고비", yaxis="y1",
+        hovertemplate="%{y:,.0f}원<extra></extra>"
+    ))
+
+    roas = df_cmp[roas_col].astype(float).fillna(0.0).clip(lower=0)
+    fig.add_trace(go.Scatter(
+        x=df_cmp[x_col], y=roas, name="ROAS", yaxis="y2",
+        mode="lines+markers",
+        hovertemplate="ROAS %{y:.2f}x (%{customdata:.0f}%)<extra></extra>",
+        customdata=(roas * 100.0)
+    ))
+
+    y2_min, y2_max = 1.0, 10.0
+    if roas.max() > y2_max:
+        y2_max = float(np.ceil(roas.max()))
+    if roas.min() < y2_min and roas.min() > 0:
+        y2_min = float(max(0.5, np.floor(roas.min()*2)/2))
+
+    tickvals = list(np.linspace(y2_min, y2_max, 5))
+    ticktext = [f"{v*100:.0f}%" for v in tickvals]
+
+    fig.update_layout(
+        height=height,
+        barmode="group",
+        title=title,
+        margin=dict(t=50, b=10, l=10, r=10),
+        yaxis=dict(title=None, tickformat=",.0f"),
+        yaxis2=dict(
+            title="ROAS(%)",
+            overlaying="y",
+            side="right",
+            range=[y2_min, y2_max],
+            tickmode="array",
+            tickvals=tickvals,
+            ticktext=ticktext,
+        ),
+        xaxis=dict(tickangle=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    return fig
 
 # =========================
 # Recommendation (fallback rule) - 유지
@@ -1622,10 +1403,9 @@ def _estimate_now_and_roi(
 # =========================
 # Tabs
 # =========================
-tab_guide, tab_agency, tab_brand, tab_rec, tab_custom, tab_plan, tab_ppt = st.tabs(
-    ["안내", "대행", "브랜드사", "추천엔진", "커스텀 시나리오", "매출 계획", "📄 PPT/결과"]
+tab_guide, tab_agency, tab_brand, tab_rec, tab_custom, tab_plan = st.tabs(
+    ["안내", "대행", "브랜드사", "추천엔진", "커스텀 시나리오", "매출 계획"]
 )
-
 
 # =========================
 # Tab: Guide
@@ -1863,43 +1643,6 @@ def agency_internal_pl(perf_out: pd.DataFrame, viral_out: pd.DataFrame, labor_co
         "op_profit": op_profit,
         "billed_total": billed,
     }
-def enhanced_agency_pl(perf_out, viral_out, headcount, cost_per_person, 
-                      perf_fee_rate=15.0, perf_payback_rate=5.0, viral_margin_rate=20.0):
-    """개선된 대행사 손익 계산"""
-    
-    # 퍼포먼스 수익/비용
-    perf_budget = float(perf_out["예산(계획)"].sum()) if not perf_out.empty else 0.0
-    perf_fee_revenue = perf_budget * (perf_fee_rate / 100.0)
-    perf_payback_cost = perf_budget * (perf_payback_rate / 100.0)
-    perf_net_margin = perf_fee_revenue - perf_payback_cost
-    
-    # 바이럴 수익/비용
-    viral_budget = float(viral_out["예산(계획)"].sum()) if not viral_out.empty else 0.0
-    viral_execution_cost = viral_budget * (1 - viral_margin_rate / 100.0)
-    viral_net_margin = viral_budget - viral_execution_cost
-    
-    # 총 손익
-    gross_margin = perf_net_margin + viral_net_margin
-    labor_cost = float(headcount) * float(cost_per_person)
-    operating_profit = gross_margin - labor_cost
-    
-    # 청구 총액
-    total_billing = perf_budget + perf_fee_revenue + viral_budget
-    
-    return {
-        "total_billing": total_billing,
-        "perf_budget": perf_budget,
-        "perf_fee_revenue": perf_fee_revenue,
-        "perf_payback_cost": perf_payback_cost,
-        "perf_net_margin": perf_net_margin,
-        "viral_budget": viral_budget,
-        "viral_execution_cost": viral_execution_cost,
-        "viral_net_margin": viral_net_margin,
-        "gross_margin": gross_margin,
-        "labor_cost": labor_cost,
-        "operating_profit": operating_profit,
-        "margin_rate": (operating_profit / total_billing * 100) if total_billing > 0 else 0
-    }
 
 # =========================
 # Tab: Agency
@@ -2031,19 +1774,6 @@ with tab_agency:
     fig_ads_tm = treemap_ads(perf_out, viral_out, title="광고 믹스(트리맵: 퍼포먼스/바이럴 색 구분)")
     if fig_ads_tm:
         st.plotly_chart(fig_ads_tm, use_container_width=True, key=f"ads_tm_ag_{scenario_key}")
-    # ✅ PPT 생성을 위한 데이터 저장
-    st.session_state.update({
-        "sim_data": sim,
-        "scenario_name": sel_disp,
-        "mix_df": mix_df,
-        "rev_share": rev_share,
-        "group_share": group_share,
-        "aov": aov,
-        "cpc": cpc,
-        "cvr": cvr,
-        "ad_contrib_in": ad_contrib_in,
-        "repurchase_in": repurchase_in
-    })
 
     # ✅ 핵심 수정: 대행 내부 손익(인건비 포함)
     if submode.startswith("내부"):
@@ -2058,45 +1788,7 @@ with tab_agency:
 
         labor_cost = float(headcount) * float(cost_per)
 
-       
-        # 수수료/마진율 설정
-        fee_col1, fee_col2, fee_col3 = st.columns(3)
-        with fee_col1:
-            perf_fee_rate = st.number_input("퍼포먼스 수수료율(%)", value=15.0, step=1.0, key="ag_fee_rate")
-        with fee_col2:
-            perf_payback_rate = st.number_input("페이백률(%)", value=5.0, step=1.0, key="ag_payback_rate")
-        with fee_col3:
-            viral_margin_rate = st.number_input("바이럴 마진율(%)", value=20.0, step=1.0, key="ag_viral_margin")
-        
-        pl = enhanced_agency_pl(
-            perf_out, viral_out, headcount, cost_per,
-            perf_fee_rate, perf_payback_rate, viral_margin_rate
-        )
-        
-        # Waterfall 차트 추가
-        fig_waterfall = go.Figure(go.Waterfall(
-            name="Agency P&L",
-            orientation="v",
-            measure=["relative", "relative", "relative", "total", "relative", "total"],
-            x=["매체비", "수수료", "페이백", "매출이익", "인건비", "영업이익"],
-            y=[
-                pl["perf_budget"] + pl["viral_budget"],
-                pl["perf_fee_revenue"],
-                -pl["perf_payback_cost"],
-                0,
-                -pl["labor_cost"],
-                0
-            ],
-            texttemplate="%{y:,.0f}원",
-            textposition="outside",
-            connector={"line": {"color": "rgba(63, 63, 63, 0.3)"}}
-        ))
-        fig_waterfall.update_layout(
-            title="대행사 손익 구조 (Waterfall Chart)",
-            height=400,
-            showlegend=False
-        )
-        st.plotly_chart(fig_waterfall, use_container_width=True, key=f"waterfall_{scenario_key}")
+        pl = agency_internal_pl(perf_out, viral_out, labor_cost=labor_cost)
 
         k1, k2, k3, k4 = st.columns(4)
         k1.metric("총 청구액(추정)", fmt_won(pl["billed_total"]))
@@ -2111,9 +1803,6 @@ with tab_agency:
         k7.metric("마진율(청구 대비)", fmt_pct(gm_rate, 1))
 
         st.caption("※ 퍼포먼스는 예산(pass-through) + 수수료 매출 구조로 가정. 페이백은 마진에서 차감. 바이럴은 예산-실집행비를 마진으로 계산.")
-# =========================================================
-# ✅ 제안서 미리보기 (4번, 6번, 7번, 8번 장표 스타일)
-# =========================================================
 
 # =========================
 # Tab: Brand
@@ -2384,14 +2073,8 @@ with tab_brand:
 # Tab: Recommendation (Classic Top3 + Compare Panel)
 # =========================
 with tab_rec:
-    st.markdown("## 🎯 시나리오 탐색기 / AI 추천")
-    st.markdown("""
-    <div style='background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); 
-                padding: 15px; border-radius: 8px; color: white; margin-bottom: 20px;'>
-        <b>💡 스마트 추천:</b> 입력 조건을 바탕으로 Backdata에서 최적의 시나리오 3개를 자동 추천합니다.<br>
-        <b>📊 성과 예측:</b> 각 시나리오의 현재 효율(ROAS)과 성장 잠재력(고점지수)을 동시에 비교할 수 있습니다.
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("## 추천 엔진")
+    st.markdown("<div class='smallcap'>예전 방식 Top3 추천 + ROI/고점(성장·재구매·광고의존) 비교</div>", unsafe_allow_html=True)
     st.divider()
 
     # ---- backdata의 성장/재구매/광고 관련 컬럼 자동 탐지 ----
@@ -2530,12 +2213,7 @@ with tab_rec:
         r = item["row"]
         rs = item["rev_share"]
         ms = item["media_share"]
-            # 시나리오 선택 버튼 (기존 버튼 바로 아래)
-            if st.button("🎯 이 시나리오로 이동", key=f"goto_{item['scenario_key']}", use_container_width=True):
-                st.session_state["sel_scn"] = item["scenario_disp"]
-                st.success(f"✅ '{item['scenario_disp']}' 선택완료! '대행' 또는 '브랜드사' 탭에서 시뮬레이션하세요.")
-                # 자동 스크롤을 위한 정보 메시지
-                st.info("💡 상단 탭을 클릭하여 시뮬레이션을 진행하세요.")
+
         # KPI (시나리오 KPI 있으면 사용, 없으면 현재 선택 시나리오 blended를 fallback)
         scn_cpc, scn_cvr = blended_cpc_cvr(r, perf_cols)
         if (not use_scn_kpi) or (scn_cpc is None) or (scn_cvr is None):
@@ -2916,111 +2594,3 @@ with tab_plan:
             fig.update_traces(texttemplate="%{text:,.0f}", textposition="outside")
             fig.update_layout(height=380, margin=dict(t=10), yaxis_title=None, xaxis_title=None, title="브랜드별 연간 매출 합계")
             st.plotly_chart(fig, use_container_width=True, key="plan_bar_total_manual")
-# =========================
-# Tab: PPT/결과 출력
-# =========================
-with tab_ppt:
-    st.markdown("## 📄 마케팅 제안서 PPT 생성")
-    
-    # 현재 상태 확인
-    if 'sim_data' in st.session_state and st.session_state.sim_data:
-        sim_data = st.session_state.sim_data
-        scenario_name = st.session_state.get('scenario_name', sel_disp)
-        
-        st.success(f"✅ 시뮬레이션 완료: {scenario_name}")
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("예상 매출", fmt_won_compact(sim_data['revenue']))
-        with col2:
-            st.metric("광고 예산", fmt_won_compact(sim_data['ad_spend']))
-        with col3:
-            st.metric("ROAS", f"{sim_data['roas']:.2f}x")
-    else:
-        st.warning("⚠️ 먼저 '대행' 또는 '브랜드사' 탭에서 시뮬레이션을 실행하세요.")
-        # 테스트용 더미 데이터
-        sim_data = {
-            'revenue': 1000000, 'ad_spend': 500000, 'roas': 2.0,
-            'ad_contrib_rate': 0.3, 'ad_revenue': 300000, 'repeat_revenue': 700000
-        }
-        scenario_name = sel_disp
-
-    st.divider()
-    
-    # PPT 생성 UI
-    if not HAS_PPTX_FULL:
-        st.error("❌ python-pptx 라이브러리가 필요합니다.")
-        st.code("pip install python-pptx")
-        st.stop()
-    
-    uploaded_template = st.file_uploader(
-        "PPT 템플릿 업로드 (.pptx, 선택사항)",
-        type=["pptx"],
-        help="템플릿이 없으면 기본 PPT를 생성합니다"
-    )
-    
-    if st.button("🚀 PPT 생성하기", type="primary", use_container_width=True):
-        with st.spinner("PPT 생성 중..."):
-            try:
-                mix_df = st.session_state.get('mix_df', pd.DataFrame())
-                rev_share = st.session_state.get('rev_share', {})
-                group_share = st.session_state.get('group_share', {'퍼포먼스': 0.6, '바이럴': 0.4})
-                
-                # 차트 데이터 준비
-                charts_data = {}
-                if not mix_df.empty:
-                    perf_df = mix_df[mix_df['구분'] == '퍼포먼스'] if '구분' in mix_df.columns else pd.DataFrame()
-                    viral_df = mix_df[mix_df['구분'] == '바이럴'] if '구분' in mix_df.columns else pd.DataFrame()
-                    
-                    fig_ads = treemap_ads(perf_df, viral_df, title="광고 믹스")
-                    if fig_ads:
-                        charts_data['ads_treemap'] = fig_ads
-                
-                if rev_share:
-                    fig_rev = treemap_revenue(rev_share, title="매출 채널 구성")
-                    if fig_rev:
-                        charts_data['rev_treemap'] = fig_rev
-                
-                # PPT 생성
-                if uploaded_template:
-                    template_bytes = uploaded_template.read()
-                    ppt_bytes = generate_complete_proposal_pptx(
-                        template_bytes=template_bytes,
-                        scenario_name=scenario_name,
-                        sim_data=sim_data,
-                        mix_df=mix_df,
-                        rev_share=rev_share,
-                        group_share=group_share,
-                        aov=st.session_state.get('aov', 50000),
-                        cpc=st.session_state.get('cpc', 500),
-                        cvr=st.session_state.get('cvr', 0.02),
-                        ad_contrib_in=st.session_state.get('ad_contrib_in', 0.3),
-                        repurchase_in=st.session_state.get('repurchase_in', 0.7),
-                        charts=charts_data
-                    )
-                    filename = f"IBR_Proposal_{scenario_name}_Template.pptx"
-                else:
-                    ppt_bytes = create_simple_proposal_pptx(
-                        scenario_name=scenario_name,
-                        sim_data=sim_data,
-                        mix_df=mix_df,
-                        rev_share=rev_share,
-                        group_share=group_share
-                    )
-                    filename = f"IBR_Proposal_{scenario_name}.pptx"
-                
-                st.success("✅ PPT 생성 완료!")
-                st.download_button(
-                    label="📥 PPT 파일 다운로드",
-                    data=ppt_bytes,
-                    file_name=filename,
-                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                    use_container_width=True
-                )
-                st.balloons()
-                
-            except Exception as e:
-                st.error(f"❌ PPT 생성 오류: {str(e)}")
-                with st.expander("🔍 오류 상세"):
-                    import traceback
-                    st.code(traceback.format_exc())
